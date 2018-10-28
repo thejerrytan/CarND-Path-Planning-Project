@@ -1,6 +1,8 @@
 #ifndef UTILS_HPP
 #define UTILS_HPP
 
+#include <math.h>
+
 // For converting back and forth between radians and degrees.
 constexpr double pi() { return M_PI; }
 inline double deg2rad(double x) { return x * pi() / 180; }
@@ -120,6 +122,7 @@ inline vector<double> getFrenet(double x, double y, double theta, const vector<d
 }
 
 inline double ms2mph(double x) { return x * 2.237; }
+inline double mph2ms(double x) { return x / 2.237; }
 
 // Transform speed from Cartesian x,y coordinates to Frenet s,d coordinates
 inline vector<double> getFrenetSpeed(double x, double y, double theta, double v_x, double v_y, const vector<double> &maps_x, const vector<double> &maps_y)

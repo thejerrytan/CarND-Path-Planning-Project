@@ -6,8 +6,6 @@
 #include <iostream>
 #include <thread>
 #include <vector>
-#include "Eigen-3.3/Eigen/Core"
-#include "Eigen-3.3/Eigen/QR"
 #include "json.hpp"
 #include "spline.h"
 #include "fsm.hpp"
@@ -72,8 +70,9 @@ int main() {
     map_waypoints_dy.push_back(d_y);
   }
   FSM fsm = FSM(map_waypoints_x, map_waypoints_y);
+  Planner planner = Planner(map_waypoints_x, map_waypoints_y, map_waypoints_s);
 
-  h.onMessage([&fsm, &map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
+  h.onMessage([&fsm, &planner, &map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
@@ -97,7 +96,7 @@ int main() {
           	double car_y = j[1]["y"];
           	double car_s = j[1]["s"];
           	double car_d = j[1]["d"];
-          	double car_yaw = j[1]["yaw"];
+          	double car_yaw = deg2rad(j[1]["yaw"]);
           	double car_speed = j[1]["speed"];
 
           	// Previous path data given to the Planner
@@ -110,60 +109,38 @@ int main() {
           	// Sensor Fusion Data, a list of all other cars on the same side of the road.
           	auto sensor_fusion = j[1]["sensor_fusion"];
 
+          	vector<double> next_x_vals;
+          	vector<double> next_y_vals;
+            
             if (fsm.getCurrentState() == FSM::notReady) {
               fsm.init(car_x, car_y, car_s, car_d, car_yaw, car_speed, sensor_fusion);
             } else {
               // run
-              fsm.run(car_x, car_y, car_s, car_d, car_yaw, car_speed, sensor_fusion);
+              FSM::STATE nextState = fsm.run(car_x, car_y, car_s, car_d, car_yaw, car_speed, sensor_fusion);
+              const double targetSpeed = fsm.targetSpeed;
+              const double targetLane = fsm.targetLane;
+              const pair<vector<double>, vector<double> > next_paths = planner.generatePath(car_x, car_y, car_s, car_d, car_yaw, car_speed, targetSpeed, targetLane);
+              next_x_vals = next_paths.first;
+              next_y_vals = next_paths.second;
             }
-            cout << fsm.getCurrentLane() << endl;
 
-          	json msgJson;
 
-          	vector<double> next_x_vals;
-          	vector<double> next_y_vals;
-
-            cout << "Localization: x, y, s, d, yaw, v" << endl; 
-            cout << car_x << " " << car_y << " " << car_s << " " << car_d << " " << car_yaw << " " << car_speed << endl;
-            // cout << "Sensor fusion: id, x, y, Vx, Vy, s, d" << endl;
-            // for (auto p: sensor_fusion) {
-            //   cout << p << endl;
-            // }
-            cout << "Closest waypoint" << endl;
-            int closestWaypoint = ClosestWaypoint(car_x, car_y, map_waypoints_x, map_waypoints_y);
-            int nextWaypoint = NextWaypoint(car_x, car_y, car_yaw, map_waypoints_x, map_waypoints_y);
-            if (nextWaypoint == closestWaypoint) nextWaypoint = (closestWaypoint + 1) % map_waypoints_y.size();
-            cout << closestWaypoint << " -> " << nextWaypoint << endl;
-
-            tk::spline s;
-            vector<pair<double, double> > fitXY;
-            vector<double> fitX, fitY;
-            fitXY.push_back(pair<double,double>(car_x, car_y));
-            fitXY.push_back(pair<double,double>(map_waypoints_x[closestWaypoint], map_waypoints_y[closestWaypoint]));
-            fitXY.push_back(pair<double,double>(map_waypoints_x[nextWaypoint], map_waypoints_y[nextWaypoint]));
-            sort(fitXY.begin(), fitXY.end(), cmp);
-            for (auto p: fitXY) { 
-              // cout << p.first << ", " << p.second << endl;
-              fitX.push_back(p.first);
-              fitY.push_back(p.second);
-            }
-            // s.set_points(fitX, fitY);
-            const double deltaX = 30.0 / 200.0;
-            // for (int i = 0; i < 200; i++) {
-            //   next_x_vals.push_back(fitX[0] + deltaX * i);
-            //   next_y_vals.push_back(s(fitX[0] + deltaX * i));
-            // }
+            json msgJson;
 
             // TODO: define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
-            msgJson["next_x"] = next_x_vals;
-            msgJson["next_y"] = next_y_vals;
+            if (next_x_vals.size() > 0 && fabs(next_x_vals[0]) > 4000) {
+              next_x_vals.clear();
+              next_y_vals.clear();
+            }
+              msgJson["next_x"] = next_x_vals;
+              msgJson["next_y"] = next_y_vals;
 
             auto msg = "42[\"control\","+ msgJson.dump()+"]";
 
 
-          	//this_thread::sleep_for(chrono::milliseconds(1000));
+          	// this_thread::sleep_for(chrono::milliseconds(1000));
           	ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
-          
+
         }
       } else {
         // Manual driving
@@ -205,22 +182,4 @@ int main() {
     return -1;
   }
   h.run();
-}
-
-
-tuple<double, double, int> getClosestWaypoint(double car_x, double car_y, const vector<double>& x, const vector<double>& y) {
-  double minX = 9e9;
-  double minY = 9e9;
-  double minDistTo = 9e9;
-  int idx = -1;
-  for (int i = 0; i < x.size(); ++i) {
-    const double distTo = (fabs(x[i] - car_x) * fabs(x[i] - car_x)) + (fabs(y[i] - car_y) * fabs(y[i] - car_y));
-    if (distTo < minDistTo) {
-      minX = x[i];
-      minY = y[i];
-      minDistTo = distTo;
-      idx = i;
-    }
-  }
-  return make_tuple(minX, minY, idx);
 }
