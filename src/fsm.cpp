@@ -6,6 +6,7 @@
 
 #define INF 10E5
 #define NINF -10E5
+#define DEBUG false
 
 using namespace std;
 
@@ -108,7 +109,7 @@ FSM::STATE FSM::run(double x, double y, double s, double d, double yaw, double v
 	updateLaneSpeeds();
 	for (auto p: laneSpeeds) {
 		if (p.first == 1 || p.first == 2 || p.first == 3) {
-			cout << "lane " << p.first << " -> " << p.second << endl;
+			if (DEBUG) cout << "lane " << p.first << " -> " << p.second << endl;
 		}
 	}
 	// vector<function<double(double &, int &)> > cf_list = { goalDistanceCost, inefficiencyCost };
@@ -119,7 +120,7 @@ FSM::STATE FSM::run(double x, double y, double s, double d, double yaw, double v
 	int chosenTargetLane = 0;
 
 	double minCost = 10E10;
-	cout << "Calculating costs: " << endl;
+	if (DEBUG) cout << "Calculating costs: " << endl;
 	for (auto state: nextStates) {
 		const tuple<double, int> trajectory = generateTrajectory(state);
 		const double targetSpeed = get<0>(trajectory);
@@ -127,7 +128,7 @@ FSM::STATE FSM::run(double x, double y, double s, double d, double yaw, double v
 		const double goalCost = weight_list[0] * goalDistanceCost(targetSpeed, targetLane);
 		const double speedCost = weight_list[1] * inefficiencyCost(targetSpeed, targetLane);
 		const double c = (goalCost + speedCost) / 1.0;
-		cout << "    " << enumToString(state) << " : " << goalCost << ", " << speedCost << endl;
+		if (DEBUG) cout << "    " << enumToString(state) << " : " << goalCost << ", " << speedCost << endl;
 		if (c < minCost) {
 			chosenState = state;
 			minCost = c;
@@ -139,7 +140,7 @@ FSM::STATE FSM::run(double x, double y, double s, double d, double yaw, double v
 	targetLane = chosenTargetLane;
 	targetSpeed = chosenTargetSpeed;
 
-	cout << "Current state: " << enumToString(currentState) << " Next state: " << enumToString(chosenState) << " targetLane : "  << targetLane << " targetSpeed : " << targetSpeed << endl;
+	if (DEBUG) cout << "Current state: " << enumToString(currentState) << " Next state: " << enumToString(chosenState) << " targetLane : "  << targetLane << " targetSpeed : " << targetSpeed << endl;
 	currentState = chosenState;
 	return chosenState;
 }
@@ -153,8 +154,8 @@ void FSM::updateLocalization(double x, double y, double s, double d, double yaw,
 	this->v = v;
 	nearestWaypoint = ClosestWaypoint(x, y, maps_x, maps_y);
 	nextWaypoint = NextWaypoint(x, y, yaw, maps_x, maps_y);
-	cout << "Localization: x, y, s, d, yaw, v, currentLane" << endl; 
-  cout << x << " " << y << " " << s << " " << d << " " << yaw << " " << v << " " << currentLane << endl;
+	if (DEBUG) cout << "Localization: x, y, s, d, yaw, v, currentLane" << endl; 
+  if (DEBUG) cout << x << " " << y << " " << s << " " << d << " " << yaw << " " << v << " " << currentLane << endl;
 }
 
 void FSM::updatePredictions(const vector<vector<double> >& newPredictions) {
@@ -167,7 +168,7 @@ void FSM::updateGoal() {
 	// } else {
 	// 	goal = (nextWaypoint - FSM::GOAL_HORIZON) % maps_x.size();
 	// }
-	cout << "updated goal!" << endl;
+	if (DEBUG) cout << "updated goal!" << endl;
 	goalLane = 1;
 	goalWaypoint = (nextWaypoint + FSM::GOAL_HORIZON) % maps_x.size();
 }

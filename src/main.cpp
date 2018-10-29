@@ -102,8 +102,8 @@ int main() {
           	double car_speed = j[1]["speed"];
 
           	// Previous path data given to the Planner
-          	auto previous_path_x = j[1]["previous_path_x"];
-          	auto previous_path_y = j[1]["previous_path_y"];
+          	vector<double> previous_path_x = j[1]["previous_path_x"];
+          	vector<double> previous_path_y = j[1]["previous_path_y"];
           	// Previous path's end s and d values 
           	double end_path_s = j[1]["end_path_s"];
           	double end_path_d = j[1]["end_path_d"];
@@ -118,26 +118,34 @@ int main() {
             
             if (fsm.getCurrentState() == FSM::notReady) {
               fsm.init(car_x, car_y, car_s, car_d, car_yaw, car_speed, sensor_fusion);
+              FSM::STATE nextState = fsm.run(car_x, car_y, car_s, car_d, car_yaw, car_speed, sensor_fusion);
+              const double targetSpeed = fsm.targetSpeed;
+              const double targetLane = fsm.targetLane;
+              
+              const pair<vector<double>, vector<double> > next_paths = planner.generatePath(car_x, car_y, car_s, car_d, car_yaw, car_speed, targetSpeed, targetLane);
             } else {
               // run
               FSM::STATE nextState = fsm.run(car_x, car_y, car_s, car_d, car_yaw, car_speed, sensor_fusion);
               const double targetSpeed = fsm.targetSpeed;
               const double targetLane = fsm.targetLane;
-              const pair<vector<double>, vector<double> > next_paths = planner.generatePath(car_x, car_y, car_s, car_d, car_yaw, car_speed, targetSpeed, targetLane);
+              
+              // const pair<vector<double>, vector<double> > next_paths = planner.generatePath(car_x, car_y, car_s, car_d, car_yaw, car_speed, targetSpeed, targetLane);
+              const pair<vector<double>, vector<double> > next_paths = planner.extendPath(car_x, car_y, car_yaw, car_speed, targetSpeed, targetLane);
               next_x_vals = next_paths.first;
               next_y_vals = next_paths.second;
+              // if (previous_path_x.size() < 50) {
+              // } else {
+              //   next_x_vals = (vector<double>& ) previous_path_x;
+              //   next_y_vals = (vector<double>& ) previous_path_y;
+              // }
             }
 
 
             json msgJson;
 
             // TODO: define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
-            if (next_x_vals.size() > 0 && fabs(next_x_vals[0]) > 4000) {
-              next_x_vals.clear();
-              next_y_vals.clear();
-            }
-              msgJson["next_x"] = next_x_vals;
-              msgJson["next_y"] = next_y_vals;
+            msgJson["next_x"] = next_x_vals;
+            msgJson["next_y"] = next_y_vals;
 
             auto msg = "42[\"control\","+ msgJson.dump()+"]";
 
