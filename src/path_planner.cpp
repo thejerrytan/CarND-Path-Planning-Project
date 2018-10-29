@@ -17,9 +17,18 @@ using Eigen::VectorXd;
 Planner::Planner(const vector<double>& maps_x, const vector<double>& maps_y, const vector<double>& maps_s) {
 	this->maps_x = maps_x;
 	this->maps_y = maps_y;
-	this->maps_s = maps_s; 	
+	this->maps_s = maps_s;
+
+	// this->nextAccelS = 0;
+	// this->nextAccelD = 0;
+	this->prevTimestamp = clock_time_ms();
 }
 Planner::~Planner() {}
+
+void Planner::updatePrevPaths(const vector<double>& prevX, const vector<double>& prevY) {
+	this->prevPathX = prevX;
+	this->prevPathY = prevY;
+}
 
 vector<double> Planner::JMT(vector<double> start, vector<double> end, double T) {
 	/*
@@ -68,9 +77,6 @@ vector<double> Planner::JMT(vector<double> start, vector<double> end, double T) 
 
 // v, targetSpeed is velocity in mph
 pair<vector<double>, vector<double> > Planner::generatePath(double x, double y, double s, double d, double yaw, double v, double targetSpeed, int targetLane) {
-	vector<double> next_xs;
-	vector<double> next_ys;
-
 	targetLane = 3;
 	const double ms = mph2ms(targetSpeed);
 	const double v_ms = mph2ms(v);
@@ -85,13 +91,24 @@ pair<vector<double>, vector<double> > Planner::generatePath(double x, double y, 
 	const vector<tuple<double, double, double> > endConfig = generateEndConfigurations(SAMPLE_SIZE, s + displacement, FSM::LANE_CENTER[targetLane], PATH_PLANNING_HORIZON);
 	vector<vector<double> > possibleSTrajectories;
 	vector<vector<double> > possibleDTrajectories;
+	unsigned long long currTimestamp = clock_time_ms();
+	const int currAccelIdx = (int) ceil( (currTimestamp - this->prevTimestamp) / 20.0) - 1;
+	double currAccelS, currAccelD;
+	if (currAccelIdx < this->prevAccelS.size()) {
+		currAccelS = this->prevAccelS[currAccelIdx];
+		currAccelD = this->prevAccelD[currAccelIdx];
+	} else {
+		currAccelS = 0.0;
+		currAccelD = 0.0;
+	}
+	cout << "Time elapsed: " << currAccelIdx << ", " << (currTimestamp - this->prevTimestamp) << " ms, currAccelS " << currAccelS << ", currAccelD " << currAccelD << endl;
 	for (auto p : endConfig) {
 		const double startS = s;
 		const double startSDot = frenetSpeed[0];
-		const double startSDotDot = 0;
+		const double startSDotDot = currAccelS;
 		const double startD = d;
 		const double startDDot = frenetSpeed[1];
-		const double startDDotDot = 0;
+		const double startDDotDot = currAccelD;
 		const double endS = get<0>(p);
 		const double endSDot = ms;
 		const double endSDotDot = 0;
@@ -108,8 +125,8 @@ pair<vector<double>, vector<double> > Planner::generatePath(double x, double y, 
 		const vector<double> endDCoeffs = { endD, endDDot, endDDotDot };
 
 		vector<double> s_coeffs = JMT(startSCoeffs, endSCoeffs, T);
-		for (auto p: s_coeffs) { cout << p << ", "; }
-		cout << endl;
+		// for (auto p: s_coeffs) { cout << p << ", "; }
+		// cout << endl;
 		vector<double> d_coeffs = JMT(startDCoeffs, endDCoeffs, T);
 		// cout << "START and END for d: " << end
 		if (isFeasible(s_coeffs, d_coeffs)) {
@@ -132,20 +149,34 @@ pair<vector<double>, vector<double> > Planner::generatePath(double x, double y, 
 		}
 	}
 
+	vector<double> next_xs, next_ys, accelS, accelD;
 	bool wrong = false;
 	if (s_coeffs.size() > 0) {
 		const double tDelta = 0.02;
+		for (auto s: s_coeffs) { cout << s << ","; }
+		cout << endl;
 		for (double i = 0; i < SIMULATION_HORIZON; i+=tDelta) {
+			// if (i == 5) {
+			// 	nextAccelS = evalA(s_coeffs, i);
+			// 	nextAccelD = evalA(d_coeffs, i);
+			// }
 			const double next_s = eval(s_coeffs, i);
 			const double next_d = eval(d_coeffs, i);
+			const double s_accel = evalA(s_coeffs, i);
+			const double d_accel = evalA(d_coeffs, i);
+			accelS.push_back(s_accel);
+			accelD.push_back(d_accel);
 			const vector<double> xy = getXY(next_s , next_d, maps_s, maps_x, maps_y);
 			if (next_s > 6945.554) wrong = true;
-			cout << next_s << ", " << next_d << ", " << xy[0] << ", " << xy[1] << endl;
+			// cout << next_s << ", " << next_d << ", " << xy[0] << ", " << xy[1] << endl;
 		  next_xs.push_back(xy[0]);
 		  next_ys.push_back(xy[1]);
 		}
 	}
 	if (wrong) { next_xs.clear(); next_ys.clear(); }
+	this->prevTimestamp = currTimestamp;
+	this->prevAccelS = accelS;
+	this->prevAccelD = accelD;
 	return make_pair(next_xs, next_ys);
 }
 
@@ -190,27 +221,34 @@ bool Planner::isFeasible(const vector<double>& s_coeffs, const vector<double>& d
 		const double vd = evalV(d_coeffs, i);
 		const double ad = evalA(d_coeffs, i);
 		if (sd > 12 || sd < -12) {
-			cout << "infeasible sd" << endl;
+			// cout << "infeasible sd" << endl;
 			return false;
 		}
 		if (fabs(vs) > MAX_VEL || vs < 0) {
-			cout << "infeasible vs" << endl;;
+			// cout << "infeasible vs" << endl;;
 			return false;
 		}
 		if (fabs(vd) > MAX_VEL) {
-			cout << "infeasible vd" << endl;
+			// cout << "infeasible vd" << endl;
 			return false;
 		}
 		if (fabs(as) > MAX_ACCEL || as < 0) {
-			cout << "infeasible as" << endl;
+			// cout << "infeasible as" << endl;
 			return false;
 		}
 		if (fabs(ad) > MAX_ACCEL) {
-			cout << "infeasible ad" << endl;
+			// cout << "infeasible ad" << endl;
 			return false;
 		}
 
 		// TODO: check steering angle
+		double nextSS = eval(s_coeffs, i+1);
+		double nextSD = eval(d_coeffs, i+1);
+		const double steering_angle = atan2( (nextSD - sd), (nextSS - ss) );
+		if (steering_angle > deg2rad(MAX_STEER_ANGLE) ) {
+			cout << "infeasible steering angle"  << steering_angle << endl;
+			return false;
+		}
 	}
 	return true;
 }

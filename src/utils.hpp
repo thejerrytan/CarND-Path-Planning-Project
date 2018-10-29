@@ -1,6 +1,7 @@
 #ifndef UTILS_HPP
 #define UTILS_HPP
 
+#include <sys/time.h>
 #include <math.h>
 
 // For converting back and forth between radians and degrees.
@@ -179,6 +180,15 @@ inline vector<double> getXY(double s, double d, const vector<double> &maps_s, co
 
 	return {x,y};
 
+}
+
+inline unsigned long long clock_time_ms(void){
+  struct timeval tv;
+  gettimeofday(&tv, NULL);
+  unsigned long long millisecondsSinceEpoch =
+    (unsigned long long)(tv.tv_sec) * 1000 +
+    (unsigned long long)(tv.tv_usec) / 1000;
+  return millisecondsSinceEpoch;
 }
 
 #endif
