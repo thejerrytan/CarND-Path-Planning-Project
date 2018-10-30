@@ -182,6 +182,35 @@ inline vector<double> getXY(double s, double d, const vector<double> &maps_s, co
 
 }
 
+// returns lane curvature at s represented by a unit vector {dx, dy}
+inline vector<double> getLaneCurvature(double s, const vector<double>& maps_s, const vector<double>& maps_x, const vector<double>& maps_y) {
+	const vector<double> initialXY = getXY(s-1, 0, maps_s, maps_x, maps_y); // evaluate at d = 0
+	const vector<double> finalXY = getXY(s+1, 0, maps_s, maps_x, maps_y);
+	const double deltaX = finalXY[0] - initialXY[0];
+	const double deltaY = finalXY[1] - initialXY[1];
+	const double norm = sqrt( deltaX*deltaX + deltaY*deltaY);
+	return { deltaX / norm, deltaY / norm };
+}
+
+inline double angleXYtoFrenet(double angle, const vector<double>& s_vector) {
+	const double norm_h = sqrt(1 + tan(angle)*tan(angle));
+	const double heading_projection = (s_vector[0]*1 + s_vector[1]*tan(angle)) / norm_h;
+	return acos(heading_projection);
+}
+
+// Both must be in rad
+inline double calcAngleDelta(double a, double b) {
+	if (a > b) {
+		const double temp = a;
+		a = b;
+		b = temp;
+	}
+	while (fabs(b - a) >= pi()) {
+		b -= 2*pi();
+	}
+	return fabs(b - a);
+}
+
 inline unsigned long long clock_time_ms(void){
   struct timeval tv;
   gettimeofday(&tv, NULL);

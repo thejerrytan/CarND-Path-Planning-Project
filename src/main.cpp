@@ -98,8 +98,8 @@ int main() {
           	double car_y = j[1]["y"];
           	double car_s = j[1]["s"];
           	double car_d = j[1]["d"];
-          	double car_yaw = deg2rad(j[1]["yaw"]);
-          	double car_speed = j[1]["speed"];
+          	double car_yaw = deg2rad(j[1]["yaw"]); // relative to x-axis
+          	double car_speed = j[1]["speed"]; // mph
 
           	// Previous path data given to the Planner
           	vector<double> previous_path_x = j[1]["previous_path_x"];
@@ -109,6 +109,7 @@ int main() {
           	double end_path_d = j[1]["end_path_d"];
 
             planner.updatePrevPaths(previous_path_x, previous_path_y);
+            planner.updateState(car_x, car_y, car_s, car_d, car_yaw, car_speed);
 
           	// Sensor Fusion Data, a list of all other cars on the same side of the road.
           	auto sensor_fusion = j[1]["sensor_fusion"];
@@ -122,14 +123,14 @@ int main() {
               const double targetSpeed = fsm.targetSpeed;
               const double targetLane = fsm.targetLane;
               
-              const pair<vector<double>, vector<double> > next_paths = planner.generatePath(car_x, car_y, car_s, car_d, car_yaw, car_speed, targetSpeed, targetLane);
+              const pair<vector<double>, vector<double> > next_paths = planner.generatePath(targetSpeed, targetLane);
             } else {
               // run
               FSM::STATE nextState = fsm.run(car_x, car_y, car_s, car_d, car_yaw, car_speed, sensor_fusion);
               const double targetSpeed = fsm.targetSpeed;
               const double targetLane = fsm.targetLane;
               
-              // const pair<vector<double>, vector<double> > next_paths = planner.generatePath(car_x, car_y, car_s, car_d, car_yaw, car_speed, targetSpeed, targetLane);
+              // const pair<vector<double>, vector<double> > next_paths = planner.generatePath(targetSpeed, targetLane);
               const pair<vector<double>, vector<double> > next_paths = planner.extendPath(car_x, car_y, car_yaw, car_speed, targetSpeed, targetLane);
               next_x_vals = next_paths.first;
               next_y_vals = next_paths.second;
@@ -139,7 +140,7 @@ int main() {
               //   next_y_vals = (vector<double>& ) previous_path_y;
               // }
             }
-
+            cout << "LOOP" << endl;
 
             json msgJson;
 
