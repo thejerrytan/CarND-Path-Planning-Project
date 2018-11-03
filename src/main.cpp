@@ -130,8 +130,12 @@ int main() {
               const double targetSpeed = fsm.targetSpeed;
               const double targetLane = fsm.targetLane;
               
-              // const pair<vector<double>, vector<double> > next_paths = planner.generatePath(targetSpeed, targetLane);
-              const pair<vector<double>, vector<double> > next_paths = planner.extendPath(car_x, car_y, car_yaw, car_speed, targetSpeed, targetLane);
+              pair<vector<double>, vector<double> > next_paths;
+              if (previous_path_x.size() < 2) {
+                next_paths = planner.generatePath(targetSpeed, targetLane);
+              } else {
+                next_paths = planner.extendPath(car_x, car_y, car_yaw, car_speed, targetSpeed, targetLane);
+              }
               next_x_vals = next_paths.first;
               next_y_vals = next_paths.second;
               // if (previous_path_x.size() < 50) {
