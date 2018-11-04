@@ -88,6 +88,8 @@ pair<vector<double>, vector<double> > Planner::generatePath(double targetSpeed, 
 	const double targetSpeedMs = mph2ms(targetSpeed);
 	const double v_ms = mph2ms(v);
 
+	// Generate trajectories for other cars for collision detection
+	generateTrajectoriesForPredictions(0);
 	
 	// Specify initial conditions
 	// double currAccelS, currAccelD;
@@ -110,7 +112,6 @@ pair<vector<double>, vector<double> > Planner::generatePath(double targetSpeed, 
 	
 	// work in frenet coordinates
 	const vector<double> start_speed_sd = getFrenetSpeed(start_x, start_y, start_yaw, start_speed*cos(start_yaw), start_speed*sin(start_yaw), maps_x, maps_y);
-	// getFrenetSpeed(x, y, yaw, v_ms*cos(yaw), v_ms*sin(yaw), maps_x, maps_y);
 
 	// s = ut + 1/2 * a * t^2, assuming linear kinematics, we apply a correction factor, if not no solution exists
 	const double ave_accel = min(8.0, (targetSpeedMs - start_speed) / PATH_PLANNING_HORIZON);
@@ -123,10 +124,10 @@ pair<vector<double>, vector<double> > Planner::generatePath(double targetSpeed, 
 	vector<vector<double> > possibleSTrajectories;
 	vector<vector<double> > possibleDTrajectories;
 	vector<double> Ts;
-	const vector<tuple<double, double, double> > endConfig = generateEndConfigurations(SAMPLE_SIZE, fmod(start_s + displacement, MAX_S), FSM::LANE_CENTER[targetLane], PATH_PLANNING_HORIZON);
+	const vector<tuple<double, double, double> > endConfig = generateEndConfigurations(SAMPLE_SIZE, fmod(start_s + displacement, MAX_S), LANE_CENTER[targetLane], PATH_PLANNING_HORIZON);
 	
-	if (PATH_PLANNER_DEBUG) cout << "Time elapsed: " << (currTimestamp - this->prevTimestamp) << " ms, currAccelS " 
-				<< start_accel_s << ", currAccelD " << start_accel_d 
+	if (PATH_PLANNER_DEBUG) cout << "Time elapsed: " << (currTimestamp - this->prevTimestamp) << " ms, start_accel_s " 
+				<< start_accel_s << ", start_accel_d " << start_accel_d 
 				<< " , num of pts passed " << numOfXYPassed <<  endl;
 
 	for (auto p : endConfig) {
@@ -137,7 +138,7 @@ pair<vector<double>, vector<double> > Planner::generatePath(double targetSpeed, 
 		const double T = get<2>(p);
 		// cout << "Start S: " << startS << ", " << startSDot << ", " << startSDotDot << endl;
 		// cout << "End S: " << endS << ", " << endSDot << ", " << endSDotDot << endl;
-		// cout << "T is " << T << ", displacement " << displacement << endl;
+		// cout << "T is " << T << ", displacement " << displacement << ", " << endD << endl;
 		const vector<double> startSCoeffs = { start_s, startSDot, start_accel_s };
 		const vector<double> endSCoeffs = { endS, targetSpeedMs, 0 };
 		const vector<double> startDCoeffs = { start_d, startDDot, start_accel_d };
@@ -218,7 +219,7 @@ pair<vector<double>, vector<double> > Planner::generatePath(double targetSpeed, 
 		  next_ys.push_back(xy[1]);
 		  accelSs.push_back(s_accel);
 		  accelDs.push_back(d_accel);
-			// xyAccelSD.push_back(make_tuple(xy[0], xy[1], s_accel, d_accel));
+		  // if (next_s > distToCarAhead[targetLane] - CAR_S_SAFETY_DISTANCE) { cout << "truncated!" << endl; break; } // truncate
 		}
 	} else {
 		if (PATH_PLANNER_DEBUG) cout << "Use previous trajectory" << endl;
@@ -245,7 +246,6 @@ pair<vector<double>, vector<double> > Planner::extendPath(double x, double y, do
 
 	int numOfXYPassed = prevXYAccelSD.size() - size;
 
-	if (PATH_PLANNER_DEBUG) cout << "<ExtendPath> numOfXYPassed " << numOfXYPassed << endl;
 
 	for (int i = numOfXYPassed; i < prevXYAccelSD.size(); ++i) {
 		const double accS = get<2>(prevXYAccelSD[i]);
@@ -259,7 +259,8 @@ pair<vector<double>, vector<double> > Planner::extendPath(double x, double y, do
 	}
 	
 	const int TARGET_NUM_PTS = (int) ceil(PATH_PLANNING_HORIZON/0.02);
-	const int ptsToAdd = (int) ceil(PATH_PLANNING_HORIZON/0.02 - size);
+	const int ptsToAdd = (int) TARGET_NUM_PTS - size;
+	if (PATH_PLANNER_DEBUG) cout << "[PathPlanner]prevPathX size: " << size <<  " numOfXYPassed " << numOfXYPassed << ", ptsToAdd " << ptsToAdd << endl;
 	const double deltaS = next_ss[size-1] - next_ss[size-2];
 	const double deltaD = next_ds[size-1] - next_ds[size-2];
 
@@ -277,6 +278,7 @@ pair<vector<double>, vector<double> > Planner::extendPath(double x, double y, do
 			accelD.push_back(0);
 			next_ss.push_back(prevS);
 			next_ds.push_back(prevD);
+			if ( prevS > distToCarAhead[targetLane] - CAR_S_SAFETY_DISTANCE) { cout << "truncated!" << endl; break; } // truncate
 		}
 		return smoothenPath(next_xs, next_ys, next_ss, next_ds, accelS, accelD);
 	} else {
@@ -352,7 +354,9 @@ vector<tuple<double, double, double> > Planner::generateEndConfigurations(int n,
 
 bool Planner::isFeasible(const vector<double>& s_coeffs, const vector<double>& d_coeffs) {
 	double currentHeading = yaw;
-	for (int i = 0; i <= PATH_PLANNING_HORIZON; ++i) {
+	const double deltaT = 0.02;
+	const int NUM_PTS = (int) floor(PATH_PLANNING_HORIZON / deltaT);
+	for (int i = 0; i < PATH_PLANNING_HORIZON; ++i) {
 		const double ss = eval(s_coeffs, i);
 		const double vs = evalV(s_coeffs, i);
 		const double as = evalA(s_coeffs, i);
@@ -360,23 +364,23 @@ bool Planner::isFeasible(const vector<double>& s_coeffs, const vector<double>& d
 		const double vd = evalV(d_coeffs, i);
 		const double ad = evalA(d_coeffs, i);
 		if (sd > 13 || sd < 1) {
-			cout << "infeasible sd " << sd<< endl;
+			// cout << "infeasible sd " << sd<< endl;
 			return false;
 		}
 		if (fabs(vs) > MAX_VEL || vs < 0) {
-			cout << "infeasible vs " << vs << endl;;
+			// cout << "infeasible vs " << vs << endl;;
 			return false;
 		}
 		if (fabs(vd) > MAX_VEL) {
-			cout << "infeasible vd " << vd << endl;
+			// cout << "infeasible vd " << vd << endl;
 			return false;
 		}
 		if (fabs(as) > MAX_ACCEL || (as < 0 && fabs(as) > MAX_DECEL)) {
-			cout << "infeasible as " << as << endl;
+			// cout << "infeasible as " << as << endl;
 			return false;
 		}
 		if (fabs(ad) > MAX_ACCEL) {
-			cout << "infeasible ad " << ad << endl;
+			// cout << "infeasible ad " << ad << endl;
 			return false;
 		}
 
@@ -390,14 +394,23 @@ bool Planner::isFeasible(const vector<double>& s_coeffs, const vector<double>& d
 		const double steering_angle = calcAngleDelta(currentHeading, angleXY);
 		currentHeading = angleXY;
 		if (steering_angle > deg2rad(MAX_STEER_ANGLE) ) {
-			if (PATH_PLANNER_DEBUG) {
-				cout << "infeasible steering angle "  
-					<< currentHeading << ", " 
-					<< steering_angle << ", " 
-					<< "(" << currXY[0] << "," << currXY[1] << ")" 
-					<< " -> " << "(" << nextXY[0] << "," << nextXY[1] << ")" << endl;
-			}
+			// if (PATH_PLANNER_DEBUG) {
+			// 	cout << "infeasible steering angle "  
+			// 		<< currentHeading << ", " 
+			// 		<< steering_angle << ", " 
+			// 		<< "(" << currXY[0] << "," << currXY[1] << ")" 
+			// 		<< " -> " << "(" << nextXY[0] << "," << nextXY[1] << ")" << endl;
+			// }
 			return false;
+		}
+
+		// Check for collision with other cars
+		for (auto trajectory: trajectories) {
+			const int j = (int) i * (1.0/0.02);
+			if (fabs(trajectory[i].first - ss) < CAR_S_SAFETY_DISTANCE && fabs(trajectory[i].second - sd) < CAR_D_SAFETY_DISTANCE) {
+				if (PATH_PLANNER_DEBUG) cout << "[PathPlanner]infeasible - collision in s-d coordinates" << endl;
+				return false;
+			}
 		}
 	}
 
@@ -407,7 +420,7 @@ bool Planner::isFeasible(const vector<double>& s_coeffs, const vector<double>& d
 	// cout << "final heading " << finalHeading << endl;
 	if (finalHeading > 1e-1) {
 		if (PATH_PLANNER_DEBUG) {
-			cout << "infeasible final heading " << finalHeading << endl;
+			// cout << "infeasible final heading " << finalHeading << endl;
 		}
 		return false;
 	}
@@ -424,7 +437,7 @@ double Planner::calculateCost(const vector<double>& s_coeffs, const vector<doubl
 	const double endD = eval(d_coeffs, translateT + PATH_PLANNING_HORIZON);
 
 	// closeness to center of the lane
-	cost += fabs(FSM::LANE_CENTER[targetLane] - endD);
+	cost += fabs(LANE_CENTER[targetLane] - endD);
 
 	// safety distance to car in front
 	cost += 1;
@@ -453,6 +466,25 @@ double Planner::calculateCost(const vector<double>& s_coeffs, const vector<doubl
 	return cost;
 }
 
+void Planner::generateTrajectoriesForPredictions(const double T) {
+	trajectories.clear();
+	const double deltaT = 0.02;
+	for (auto p: predictions) {
+		// assume speed remains constant
+		const double thetaXY = angleFrenetToXY(p[1], p[2], 0, yaw, maps_x, maps_y);
+		const vector<double> frenetSpeed = getFrenetSpeed(p[1], p[2], thetaXY, p[3], p[4], maps_x, maps_y);
+		vector<pair<double, double> > trajectory;
+		for (int i = 0; i < PATH_PLANNING_HORIZON; ++i) {
+			const double s = p[5] + i * frenetSpeed[0];
+			const double d = p[6] + i * frenetSpeed[1];
+			trajectory.push_back(make_pair(s, d));
+			// cout << "car_id: " << p[0] << " speed_s: " << frenetSpeed[0] << " speed_d: " << frenetSpeed[1]
+			// << " s : " << s << " d: " << d << endl;
+		}
+		trajectories.push_back(trajectory);
+	}
+}
+
 
 vector<double> Planner::calculateDeltaSD(const double theta) {
 	const vector<double> initialSD = getFrenet(get<0>(prevXYAccelSD[0]), get<1>(prevXYAccelSD[0]), theta, maps_x, maps_y);
@@ -469,12 +501,29 @@ void Planner::updateState(double x, double y, double s, double d, double yaw, do
 	this->v = v;
 }
 
+void Planner::updatePredictions(const vector<vector<double> >& predictions) {
+	this->predictions = predictions;
+	distToCarAhead[1] = INF;
+	distToCarAhead[2] = INF;
+	distToCarAhead[3] = INF;
+	for (auto p: predictions) {
+		int laneNum = calcCurrentLane(p[6]);
+		if (p[5] > s && p[5] < distToCarAhead[laneNum]) {
+			distToCarAhead[laneNum] = p[5];
+		}
+	}
+	if (PATH_PLANNER_DEBUG) {
+		// cout << "[PathPlanner] Dist to car ahead Lane 1: " << distToCarAhead[1] - s << endl;
+		// cout << "[PathPlanner] Dist to car ahead Lane 2: " << distToCarAhead[2] - s << endl;
+		// cout << "[PathPlanner] Dist to car ahead Lane 3: " << distToCarAhead[3] - s << endl;
+	}
+}
+
 // speed - scalar, ms-1
 double Planner::getSpeedAtEndOfPath() {
 	if (prevPathX.size() > 1) {
 		const double deltaX = prevPathX[prevPathX.size()-1] - prevPathX[prevPathX.size()-2];
 		const double deltaY = prevPathY[prevPathY.size()-1] - prevPathY[prevPathY.size()-2];
-		cout << "deltaX " << deltaX << ", " << "deltaY" << deltaY << endl;
 		return sqrt(deltaX * deltaX + deltaY * deltaY) / 0.02;
 	} else {
 		return 0.0;

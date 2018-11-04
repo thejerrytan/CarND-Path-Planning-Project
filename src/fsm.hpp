@@ -9,7 +9,7 @@ using namespace std;
 class FSM {
 public:
 	enum STATE { notReady, ready, keepLane, laneChangeLeft, laneChangeRight, final };
-	static map<int, double> LANE_CENTER;
+	// static map<int, double> LANE_CENTER;
 	FSM(const vector<double>& mapX, const vector<double>& mapY);
 	virtual ~FSM();
 	void init(double x, double y, double s, double d, double yaw, double v, const vector<vector<double> >& predictions);
@@ -40,7 +40,7 @@ private:
 	void updateLaneSpeeds();
 	void updateGoal();
 	void updateCurrentLane();
-	int calcCurrentLane(const double d);
+	// int calcCurrentLane(const double d);
 	tuple<double, int> generateTrajectory(FSM::STATE end);
 	double goalDistanceCost(double targetSpeed, int targetLane);
 	double inefficiencyCost(double targetSpeed, int targetLane);

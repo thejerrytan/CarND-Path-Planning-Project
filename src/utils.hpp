@@ -3,6 +3,37 @@
 
 #include <sys/time.h>
 #include <math.h>
+#include "fsm.hpp"
+
+#define INF 10E5
+#define NINF -10E5
+
+using namespace std;
+
+static map<int, double> LANE_CENTER {
+		{NINF, -12 },
+		{-3, -10 },
+		{-2, -6 },
+		{-1, -2 },
+		{0, 0 },
+		{1, 2 },
+		{2, 6 },
+		{3, 10 },
+		{INF, 12}
+};
+
+inline int calcCurrentLane(const double d) {
+	double minDiff = 9e9;
+	int lane = 0;
+	for (auto p: LANE_CENTER) {
+		const double diff = fabs(d - p.second);
+		if (diff < minDiff) {
+			lane = p.first;
+			minDiff = diff;
+		}
+	}
+	return lane;
+}
 
 // For converting back and forth between radians and degrees.
 constexpr double pi() { return M_PI; }
@@ -125,7 +156,7 @@ inline vector<double> getFrenet(double x, double y, double theta, const vector<d
 inline double ms2mph(double x) { return x * 2.237; }
 inline double mph2ms(double x) { return x / 2.237; }
 
-// Transform speed from Cartesian x,y coordinates to Frenet s,d coordinates
+// Transform speed from Cartesian x,y coordinates to Frenet s,d coordinates. theta is w.r.t x-axis
 inline vector<double> getFrenetSpeed(double x, double y, double theta, double v_x, double v_y, const vector<double> &maps_x, const vector<double> &maps_y)
 {
 	int next_wp = NextWaypoint(x,y, theta, maps_x,maps_y);
@@ -196,6 +227,22 @@ inline double angleXYtoFrenet(double angle, const vector<double>& s_vector) {
 	const double norm_h = sqrt(1 + tan(angle)*tan(angle));
 	const double heading_projection = (s_vector[0]*1 + s_vector[1]*tan(angle)) / norm_h;
 	return acos(heading_projection);
+}
+
+// given thetaFrenet angle w.r.t s-axis, transforms to angle w.r.t x-axis
+inline double angleFrenetToXY(const double x, const double y, const double thetaFrenet, const double myHeading, const vector<double>& maps_x, const vector<double>& maps_y) {
+	int next_wp = NextWaypoint(x,y, myHeading, maps_x, maps_y);
+
+	int prev_wp;
+	prev_wp = next_wp-1;
+	if(next_wp == 0)
+	{
+		prev_wp  = maps_x.size()-1;
+	}
+	const double deltaX = maps_x[next_wp] - maps_x[prev_wp];
+	const double deltaY = maps_y[next_wp] - maps_y[prev_wp];
+	const double cosTheta = 1 * deltaY * cos(thetaFrenet) / sqrt(deltaX*deltaX + deltaY*deltaY);
+	return acos(cosTheta);
 }
 
 // Both must be in rad

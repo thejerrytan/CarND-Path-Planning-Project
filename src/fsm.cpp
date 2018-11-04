@@ -20,17 +20,17 @@ map<FSM::STATE, vector<FSM::STATE> > FSM::NEXT_STATE {
 		{ FSM::laneChangeRight, vector<FSM::STATE> { FSM::laneChangeRight, FSM::keepLane }},
 		{ FSM::final, vector<FSM::STATE> { FSM::final }}
 	};
-map<int, double> FSM::LANE_CENTER {
-		{NINF, -12 },
-		{-3, -10 },
-		{-2, -6 },
-		{-1, -2 },
-		{0, 0 },
-		{1, 2 },
-		{2, 6 },
-		{3, 10 },
-		{INF, 12}
-};
+// map<int, double> FSM::LANE_CENTER {
+// 		{NINF, -12 },
+// 		{-3, -10 },
+// 		{-2, -6 },
+// 		{-1, -2 },
+// 		{0, 0 },
+// 		{1, 2 },
+// 		{2, 6 },
+// 		{3, 10 },
+// 		{INF, 12}
+// };
 
 FSM::FSM(const vector<double>& mapX, const vector<double>& mapY) {
 	this->maps_x = mapX;
@@ -88,18 +88,18 @@ int FSM::getCurrentLane() {
 	return currentLane;
 }
 
-int FSM::calcCurrentLane(const double d) {
-	double minDiff = 9e9;
-	int lane = 0;
-	for (auto p: LANE_CENTER) {
-		const double diff = fabs(d - p.second);
-		if (diff < minDiff) {
-			lane = p.first;
-			minDiff = diff;
-		}
-	}
-	return lane;
-}
+// int FSM::calcCurrentLane(const double d) {
+// 	double minDiff = 9e9;
+// 	int lane = 0;
+// 	for (auto p: LANE_CENTER) {
+// 		const double diff = fabs(d - p.second);
+// 		if (diff < minDiff) {
+// 			lane = p.first;
+// 			minDiff = diff;
+// 		}
+// 	}
+// 	return lane;
+// }
 
 // outputs the next state
 FSM::STATE FSM::run(double x, double y, double s, double d, double yaw, double v, const vector<vector<double> >& newPredictions) {
