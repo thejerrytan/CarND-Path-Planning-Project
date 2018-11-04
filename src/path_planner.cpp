@@ -24,6 +24,7 @@ Planner::Planner(const vector<double>& maps_x, const vector<double>& maps_y, con
 	this->maps_s = maps_s;
 
 	this->prevTimestamp = clock_time_ms();
+	// this->prevXYAccelSD = vector<tuple<double, double, double, double, double, double> >();
 }
 Planner::~Planner() {}
 
@@ -77,67 +78,68 @@ vector<double> Planner::JMT(vector<double> start, vector<double> end, double T) 
     return {si, si_dot, 0.5 * si_dot_dot, ans(0), ans(1), ans(2)};
 }
 
-// v, targetSpeed is velocity in mph
-pair<vector<double>, vector<double> > Planner::generatePath(double targetSpeed, int targetLane) {
-	targetLane = 2;
+// v, targetSpeed is velocity in mph, appendOnly to generate a new path to add on to previous path
+pair<vector<double>, vector<double> > Planner::generatePath(double targetSpeed, int targetLane, bool appendOnly) {
+	// targetLane = 2;
+	if (appendOnly) assert(prevPathX.size() > 1);
 	unsigned long long currTimestamp = clock_time_ms();
 	const double elapsedTime = (currTimestamp - prevTimestamp) / 1000.0;
-	const double ms = mph2ms(targetSpeed);
+	const double targetSpeedMs = mph2ms(targetSpeed);
 	const double v_ms = mph2ms(v);
 
+	
+	// Specify initial conditions
+	// double currAccelS, currAccelD;
+	double start_x, start_y, start_s, start_d, start_yaw, start_speed, start_accel_s, start_accel_d;
+	int size = prevXYAccelSD.size();
+	int numOfXYPassed = prevXYAccelSD.size() - prevPathX.size();
+	if (numOfXYPassed > 0) {
+		start_accel_s = appendOnly ? get<2>(prevXYAccelSD[size-1]) : get<2>(prevXYAccelSD[numOfXYPassed]);
+		start_accel_d = appendOnly ? get<3>(prevXYAccelSD[size-1]) : get<3>(prevXYAccelSD[numOfXYPassed]);
+	} else {
+		start_accel_s = 0.0;
+		start_accel_d = 0.0;
+	}
+	start_x = appendOnly ? get<0>(prevXYAccelSD[size-1]) : x;
+	start_y = appendOnly ? get<1>(prevXYAccelSD[size-1]) : y;
+	start_s = appendOnly ? get<4>(prevXYAccelSD[size-1]) : s;
+	start_d = appendOnly ? get<5>(prevXYAccelSD[size-1]) : d;
+	start_yaw = appendOnly ? getYawAtEndOfPath() : yaw;
+	start_speed = appendOnly ? getSpeedAtEndOfPath() : v_ms;
+	
 	// work in frenet coordinates
-	const vector<double> frenetSpeed = getFrenetSpeed(x, y, yaw, v_ms*cos(yaw), v_ms*sin(yaw), maps_x, maps_y);
+	const vector<double> start_speed_sd = getFrenetSpeed(start_x, start_y, start_yaw, start_speed*cos(start_yaw), start_speed*sin(start_yaw), maps_x, maps_y);
+	// getFrenetSpeed(x, y, yaw, v_ms*cos(yaw), v_ms*sin(yaw), maps_x, maps_y);
 
 	// s = ut + 1/2 * a * t^2, assuming linear kinematics, we apply a correction factor, if not no solution exists
-	const double displacement = (frenetSpeed[0] * PATH_PLANNING_HORIZON +
+	const double displacement = (start_speed_sd[0] * PATH_PLANNING_HORIZON +
 			 												0.5 * TARGET_AVG_ACCEL * PATH_PLANNING_HORIZON * PATH_PLANNING_HORIZON) 
 															* NONLINEARITY_CORRECTION_FACTOR;
-	
+
+	cout << s << ", start_s : " << start_s << " , end_s " << start_s + displacement << " , start_speed "  << start_speed << endl;
 	// Generate a bunch of possible end configurations
-	const vector<tuple<double, double, double> > endConfig = generateEndConfigurations(SAMPLE_SIZE, fmod(s + displacement, MAX_S), FSM::LANE_CENTER[targetLane], PATH_PLANNING_HORIZON);
 	vector<vector<double> > possibleSTrajectories;
 	vector<vector<double> > possibleDTrajectories;
-	double currAccelS, currAccelD;
-	int numOfXYPassed = 0;
-	if (this->prevXYAccelSD.size() > 0) {
-		for (int i = 0; i < prevXYAccelSD.size(); ++i) {
-			if (i == prevXYAccelSD.size() && PATH_PLANNER_DEBUG) cout << "Cannot find accelSD" << endl;
-			if (distance(x, y, get<0>(prevXYAccelSD[i]), get<1>(prevXYAccelSD[i])) < 1e-3) {
-				currAccelS = get<2>(prevXYAccelSD[i]);
-				currAccelD = get<3>(prevXYAccelSD[i]);
-				numOfXYPassed = i + 1;
-				break;
-			}
-		}
-	} else {
-		currAccelS = 0.0;
-		currAccelD = 0.0;
-	}
+	vector<double> Ts;
+	const vector<tuple<double, double, double> > endConfig = generateEndConfigurations(SAMPLE_SIZE, fmod(start_s + displacement, MAX_S), FSM::LANE_CENTER[targetLane], PATH_PLANNING_HORIZON);
+	
 	if (PATH_PLANNER_DEBUG) cout << "Time elapsed: " << (currTimestamp - this->prevTimestamp) << " ms, currAccelS " 
-				<< currAccelS << ", currAccelD " << currAccelD 
+				<< start_accel_s << ", currAccelD " << start_accel_d 
 				<< " , num of pts passed " << numOfXYPassed <<  endl;
 
 	for (auto p : endConfig) {
-		const double startS = s;
-		const double startSDot = frenetSpeed[0];
-		const double startSDotDot = currAccelS;
-		const double startD = d;
-		const double startDDot = frenetSpeed[1];
-		const double startDDotDot = currAccelD;
+		const double startSDot = start_speed_sd[0];
+		const double startDDot = start_speed_sd[1];
 		const double endS = get<0>(p);
-		const double endSDot = ms;
-		const double endSDotDot = 0;
 		const double endD = get<1>(p);
-		const double endDDot = 0;
-		const double endDDotDot = 0;
 		const double T = get<2>(p);
 		// cout << "Start S: " << startS << ", " << startSDot << ", " << startSDotDot << endl;
 		// cout << "End S: " << endS << ", " << endSDot << ", " << endSDotDot << endl;
 		// cout << "T is " << T << ", displacement " << displacement << endl;
-		const vector<double> startSCoeffs = { startS, startSDot, startSDotDot };
-		const vector<double> endSCoeffs = { endS, endSDot, endSDotDot };
-		const vector<double> startDCoeffs = { startD, startDDot, startDDotDot };
-		const vector<double> endDCoeffs = { endD, endDDot, endDDotDot };
+		const vector<double> startSCoeffs = { start_s, startSDot, start_accel_s };
+		const vector<double> endSCoeffs = { endS, targetSpeedMs, 0 };
+		const vector<double> startDCoeffs = { start_d, startDDot, start_accel_d };
+		const vector<double> endDCoeffs = { endD, 0, 0 };
 
 		vector<double> s_coeffs = JMT(startSCoeffs, endSCoeffs, T);
 		// if (PATH_PLANNER_DEBUG) {
@@ -149,13 +151,14 @@ pair<vector<double>, vector<double> > Planner::generatePath(double targetSpeed, 
 		if (isFeasible(s_coeffs, d_coeffs)) {
 			possibleSTrajectories.push_back(s_coeffs);
 			possibleDTrajectories.push_back(d_coeffs);
+			Ts.push_back(T);
 		}
 	}
 
 	// Push back prev trajectory to be considered among the rest
 	// Be careful, we need to translate by the T elapsed
 	bool hasPreviousTrajectory = false;
-	if (prevXYAccelSD.size() > 0 && prevPathX.size() > 0) {
+	if (!appendOnly && prevXYAccelSD.size() > 0 && prevPathX.size() > 0) {
 		hasPreviousTrajectory = true;
 		possibleSTrajectories.push_back(prevSCoeffs);
 		possibleDTrajectories.push_back(prevDCoeffs);
@@ -165,6 +168,7 @@ pair<vector<double>, vector<double> > Planner::generatePath(double targetSpeed, 
 	if (PATH_PLANNER_DEBUG) cout << possibleSTrajectories.size() << " feasible trajectories." << endl;
 	vector<double> s_coeffs;
 	vector<double> d_coeffs;
+	double T;
 	double minCost = 10e10;
 	for (int i = 0; i < possibleSTrajectories.size(); ++i) {
 		const double cost =  (i == possibleSTrajectories.size()-1 && hasPreviousTrajectory) ? 
@@ -174,12 +178,24 @@ pair<vector<double>, vector<double> > Planner::generatePath(double targetSpeed, 
 			minCost = cost;
 			s_coeffs = possibleSTrajectories[i];
 			d_coeffs = possibleDTrajectories[i];
+			T = Ts[i];
 		}
 	}
 
 	if (PATH_PLANNER_DEBUG) cout << "Min cost " << minCost << endl;
 	// Generate chosen trajectory
 	vector<double> next_xs, next_ys, next_ss, next_ds, accelSs, accelDs;
+	if (appendOnly) {
+		next_xs = prevPathX;
+		next_ys = prevPathY;
+		for (int i = numOfXYPassed; i < prevXYAccelSD.size(); ++i) {
+			accelSs.push_back(get<2>(prevXYAccelSD[i]));
+			accelDs.push_back(get<3>(prevXYAccelSD[i]));
+			next_ss.push_back(get<4>(prevXYAccelSD[i]));
+			next_ds.push_back(get<5>(prevXYAccelSD[i]));
+		}
+	}
+
 	// vector<tuple<double, double, double, double> > xyAccelSD;
 	if (s_coeffs.size() > 0) {
 		const double tDelta = 0.02;
@@ -187,7 +203,7 @@ pair<vector<double>, vector<double> > Planner::generatePath(double targetSpeed, 
 		// cout << endl;
 		this->prevSCoeffs = s_coeffs;
 		this->prevDCoeffs = d_coeffs;
-		for (double i = 0; i < SIMULATION_HORIZON; i+=tDelta) {
+		for (double i = 0; i < T; i+=tDelta) {
 			const double next_s = eval(s_coeffs, i);
 			const double next_d = eval(d_coeffs, i);
 			const double s_accel = evalA(s_coeffs, i);
@@ -214,6 +230,7 @@ pair<vector<double>, vector<double> > Planner::generatePath(double targetSpeed, 
 
 // mostly for lane keeping, targetSpeed and v is in mph
 pair<vector<double>, vector<double> > Planner::extendPath(double x, double y, double yaw, double v, double targetSpeed, int targetLane) {
+	prevTimestamp = clock_time_ms();
 	const int size = prevPathX.size();
 	vector<tuple<double, double, double, double, double, double> > xyAccelSD;
 	if (prevPathX.size() == 0) return make_pair(prevPathX, prevPathY);
@@ -227,7 +244,6 @@ pair<vector<double>, vector<double> > Planner::extendPath(double x, double y, do
 	int numOfXYPassed = prevXYAccelSD.size() - size;
 
 	if (PATH_PLANNER_DEBUG) cout << "<ExtendPath> numOfXYPassed " << numOfXYPassed << endl;
-	cout << prevPathX.size() << endl;
 
 	for (int i = numOfXYPassed; i < prevXYAccelSD.size(); ++i) {
 		const double accS = get<2>(prevXYAccelSD[i]);
@@ -238,19 +254,13 @@ pair<vector<double>, vector<double> > Planner::extendPath(double x, double y, do
 		accelD.push_back(accD);
 		next_ss.push_back(nextS);
 		next_ds.push_back(nextD);
-		// cout << get<4>(prevXYAccelSD[i]) << ", " << get<5>(prevXYAccelSD[i]) << endl;
 	}
 	
-	cout << prevPathX.size() << " " << prevXYAccelSD.size() << " " << next_ss.size() << endl;
 	const int TARGET_NUM_PTS = (int) ceil(PATH_PLANNING_HORIZON/0.02);
 	const int ptsToAdd = (int) ceil(PATH_PLANNING_HORIZON/0.02 - size);
 	const double deltaS = next_ss[size-1] - next_ss[size-2];
 	const double deltaD = next_ds[size-1] - next_ds[size-2];
-	// cout << "<<<<<<<<<<<< " << endl;
-	// cout << next_ss[size-2] << ", " << next_ss[size-1] << endl;
-	// assert(next_ss[size-2] < next_ss[size-1]);
-	// cout << deltaS << "," << deltaD << endl;
-	// cout << ">>>>>>>>>>>> " << endl;
+
 	if (ptsToAdd > 0) {
 		double prevS = next_ss[size-1];
 		double prevD = next_ds[size-1];
@@ -266,25 +276,40 @@ pair<vector<double>, vector<double> > Planner::extendPath(double x, double y, do
 			next_ss.push_back(prevS);
 			next_ds.push_back(prevD);
 		}
-
-		// const vector<double> sd = getFrenet(prevPathX[size-1], prevPathY[size-1], yaw, maps_x, maps_y);
-		// const double next_d = FSM::LANE_CENTER[targetLane];
-		// for (int i = 1; i <= ptsToAdd; ++i) {
-		// 	const double next_s = sd[0] + i * targetSpeedMs * 0.02;
-		// 	const vector<double> next_xy = getXY(next_s, next_d, maps_s, maps_x, maps_y);
-		// 	next_xs.push_back(next_xy[0]);
-		// 	next_ys.push_back(next_xy[1]);
-		// 	accelS.push_back(0);
-		// 	accelD.push_back(0);
-		// }
-		// smoothen trajectory
-		// return smoothenPath(next_xs, next_ys, accelS, accelD);
-		// this->prevXYAccelSD = xyAccelSD;
 		return smoothenPath(next_xs, next_ys, next_ss, next_ds, accelS, accelD);
 	} else {
-		// this->prevXYAccelSD = xyAccelSD;
 		return make_pair(next_xs, next_ys);
 	}
+}
+
+// pathX and pathY must be sorted in ascending X
+pair<vector<double>, vector<double> > Planner::smoothenPath(const vector<double>& pathX, const vector<double>& pathY, const vector<double>& pathS, const vector<double>& pathD, const vector<double>& accelS, const vector<double>& accelD) {
+	tk::spline xt, yt;
+	vector<tuple<double, double, double, double, double, double> > xyAccelSD;
+	const int POINTS_TO_FIT = 5;
+	assert(pathX.size() >= POINTS_TO_FIT);
+	const int START = 0;
+	const int END = pathX.size() - 1;
+	const int MID = (int) (END - START) / 2;
+	const int FIRST_QUARTILE = (int) (MID - START) / 2;
+	const int THIRD_QUARTILE = (int) (MID + END) / 2;
+	vector<double> smoothedX, smoothedY;
+	xt.set_points( { 0.02*START, 0.02*FIRST_QUARTILE, .02*MID, .02*THIRD_QUARTILE, .02*END },
+								 { pathX[START], pathX[FIRST_QUARTILE], pathX[MID], pathX[THIRD_QUARTILE], pathX[END] } );
+
+	yt.set_points( { 0.02*START, 0.02*FIRST_QUARTILE, .02*MID, .02*THIRD_QUARTILE, .02*END },
+								 { pathY[START], pathY[FIRST_QUARTILE], pathY[MID], pathY[THIRD_QUARTILE], pathY[END] } );
+
+	for (int i = 0; i < pathX.size(); ++i ) {
+		const double evalX = xt(.02*i);
+		const double evalY = yt(.02*i);
+		smoothedX.push_back(evalX);
+		smoothedY.push_back(evalY);
+		// we need to use the smoothed xy values here
+		xyAccelSD.push_back(make_tuple(evalX, evalY, accelS[i], accelD[i], pathS[i], pathD[i]));
+	}
+	this->prevXYAccelSD = xyAccelSD;
+	return make_pair(smoothedX, smoothedY);
 }
 
 // evaluate displacement at time t
@@ -332,24 +357,24 @@ bool Planner::isFeasible(const vector<double>& s_coeffs, const vector<double>& d
 		const double sd = eval(d_coeffs, i);
 		const double vd = evalV(d_coeffs, i);
 		const double ad = evalA(d_coeffs, i);
-		if (sd > 12 || sd < -12) {
-			// cout << "infeasible sd" << endl;
+		if (sd > 13 || sd < 1) {
+			// cout << "infeasible sd " << sd<< endl;
 			return false;
 		}
 		if (fabs(vs) > MAX_VEL || vs < 0) {
-			// cout << "infeasible vs" << endl;;
+			// cout << "infeasible vs " << vs << endl;;
 			return false;
 		}
 		if (fabs(vd) > MAX_VEL) {
-			// cout << "infeasible vd" << endl;
+			// cout << "infeasible vd " << vd << endl;
 			return false;
 		}
-		if (fabs(as) > MAX_ACCEL || as < 0) {
-			// cout << "infeasible as" << endl;
+		if (fabs(as) > MAX_ACCEL || (as < 0 && fabs(as) > MAX_DECEL)) {
+			// cout << "infeasible as " << as << endl;
 			return false;
 		}
 		if (fabs(ad) > MAX_ACCEL) {
-			// cout << "infeasible ad" << endl;
+			// cout << "infeasible ad " << ad << endl;
 			return false;
 		}
 
@@ -427,35 +452,6 @@ double Planner::calculateCost(const vector<double>& s_coeffs, const vector<doubl
 	return cost;
 }
 
-// pathX and pathY must be sorted in ascending X
-pair<vector<double>, vector<double> > Planner::smoothenPath(const vector<double>& pathX, const vector<double>& pathY, const vector<double>& pathS, const vector<double>& pathD, const vector<double>& accelS, const vector<double>& accelD) {
-	tk::spline xt, yt;
-	vector<tuple<double, double, double, double, double, double> > xyAccelSD;
-	const int POINTS_TO_FIT = 5;
-	assert(pathX.size() >= POINTS_TO_FIT);
-	const int START = 0;
-	const int END = pathX.size() - 1;
-	const int MID = (int) (END - START) / 2;
-	const int FIRST_QUARTILE = (int) (MID - START) / 2;
-	const int THIRD_QUARTILE = (int) (MID + END) / 2;
-	vector<double> smoothedX, smoothedY;
-	xt.set_points( { 0.02*START, 0.02*FIRST_QUARTILE, .02*MID, .02*THIRD_QUARTILE, .02*END },
-								 { pathX[START], pathX[FIRST_QUARTILE], pathX[MID], pathX[THIRD_QUARTILE], pathX[END] } );
-
-	yt.set_points( { 0.02*START, 0.02*FIRST_QUARTILE, .02*MID, .02*THIRD_QUARTILE, .02*END },
-								 { pathY[START], pathY[FIRST_QUARTILE], pathY[MID], pathY[THIRD_QUARTILE], pathY[END] } );
-
-	for (int i = 0; i < pathX.size(); ++i ) {
-		const double evalX = xt(.02*i);
-		const double evalY = yt(.02*i);
-		smoothedX.push_back(evalX);
-		smoothedY.push_back(evalY);
-		// we need to use the smoothed xy values here
-		xyAccelSD.push_back(make_tuple(evalX, evalY, accelS[i], accelD[i], pathS[i], pathD[i]));
-	}
-	this->prevXYAccelSD = xyAccelSD;
-	return make_pair(smoothedX, smoothedY);
-}
 
 vector<double> Planner::calculateDeltaSD(const double theta) {
 	const vector<double> initialSD = getFrenet(get<0>(prevXYAccelSD[0]), get<1>(prevXYAccelSD[0]), theta, maps_x, maps_y);
@@ -470,4 +466,26 @@ void Planner::updateState(double x, double y, double s, double d, double yaw, do
 	this->d = d;
 	this->yaw = yaw;
 	this->v = v;
+}
+
+// speed - scalar, ms-1
+double Planner::getSpeedAtEndOfPath() {
+	if (prevPathX.size() > 1) {
+		const double deltaX = prevPathX[prevPathX.size()-1] - prevPathX[prevPathX.size()-2];
+		const double deltaY = prevPathY[prevPathY.size()-1] - prevPathY[prevPathY.size()-2];
+		cout << "deltaX " << deltaX << ", " << "deltaY" << deltaY << endl;
+		return sqrt(deltaX * deltaX + deltaY * deltaY) / 0.02;
+	} else {
+		return 0.0;
+	}
+}
+
+double Planner::getYawAtEndOfPath() {
+	if (prevPathX.size() > 1) {
+		const double deltaX = prevPathX[prevPathX.size()-1] - prevPathX[prevPathX.size()-2];
+		const double deltaY = prevPathY[prevPathY.size()-1] - prevPathY[prevPathY.size()-2];
+		return atan2(deltaY, deltaX);
+	} else {
+		return yaw;
+	}
 }

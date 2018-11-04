@@ -72,9 +72,10 @@ int main() {
 
   FSM fsm = FSM(map_waypoints_x, map_waypoints_y);
   Planner planner = Planner(map_waypoints_x, map_waypoints_y, map_waypoints_s);
+  int count = 0;
 
 
-  h.onMessage([&fsm, &planner, &map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
+  h.onMessage([&fsm, &planner, &count, &map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
@@ -91,50 +92,65 @@ int main() {
         string event = j[0].get<string>();
         
         if (event == "telemetry") {
+          count++;
           // j[1] is the data JSON object
           
-        	// Main car's localization Data
-          	double car_x = j[1]["x"];
-          	double car_y = j[1]["y"];
-          	double car_s = j[1]["s"];
-          	double car_d = j[1]["d"];
-          	double car_yaw = deg2rad(j[1]["yaw"]); // relative to x-axis
-          	double car_speed = j[1]["speed"]; // mph
+          // Main car's localization Data
+            double car_x = j[1]["x"];
+            double car_y = j[1]["y"];
+            double car_s = j[1]["s"];
+            double car_d = j[1]["d"];
+            double car_yaw = deg2rad(j[1]["yaw"]); // relative to x-axis
+            double car_speed = j[1]["speed"]; // mph
 
-          	// Previous path data given to the Planner
-          	vector<double> previous_path_x = j[1]["previous_path_x"];
-          	vector<double> previous_path_y = j[1]["previous_path_y"];
-          	// Previous path's end s and d values 
-          	double end_path_s = j[1]["end_path_s"];
-          	double end_path_d = j[1]["end_path_d"];
+            // Previous path data given to the Planner
+            vector<double> previous_path_x = j[1]["previous_path_x"];
+            vector<double> previous_path_y = j[1]["previous_path_y"];
+            // Previous path's end s and d values 
+            double end_path_s = j[1]["end_path_s"];
+            double end_path_d = j[1]["end_path_d"];
 
             planner.updatePrevPaths(previous_path_x, previous_path_y);
             planner.updateState(car_x, car_y, car_s, car_d, car_yaw, car_speed);
 
-          	// Sensor Fusion Data, a list of all other cars on the same side of the road.
-          	auto sensor_fusion = j[1]["sensor_fusion"];
+            // Sensor Fusion Data, a list of all other cars on the same side of the road.
+            auto sensor_fusion = j[1]["sensor_fusion"];
 
-          	vector<double> next_x_vals;
-          	vector<double> next_y_vals;
+            vector<double> next_x_vals;
+            vector<double> next_y_vals;
             
             if (fsm.getCurrentState() == FSM::notReady) {
               fsm.init(car_x, car_y, car_s, car_d, car_yaw, car_speed, sensor_fusion);
               FSM::STATE nextState = fsm.run(car_x, car_y, car_s, car_d, car_yaw, car_speed, sensor_fusion);
               const double targetSpeed = fsm.targetSpeed;
-              const double targetLane = fsm.targetLane;
+              // const double targetLane = fsm.targetLane;
+              const double targetLane = 2;
               
-              const pair<vector<double>, vector<double> > next_paths = planner.generatePath(targetSpeed, targetLane);
+              const pair<vector<double>, vector<double> > next_paths = planner.generatePath(targetSpeed, targetLane, false);
             } else {
               // run
               FSM::STATE nextState = fsm.run(car_x, car_y, car_s, car_d, car_yaw, car_speed, sensor_fusion);
               const double targetSpeed = fsm.targetSpeed;
-              const double targetLane = fsm.targetLane;
-              
+              // const double targetLane = fsm.targetLane;
+              const double targetLane = 2;
               pair<vector<double>, vector<double> > next_paths;
-              if (previous_path_x.size() < 2) {
-                next_paths = planner.generatePath(targetSpeed, targetLane);
+              if (count == 100) {
+                cout << "count 100 generating new path" << endl;
+                next_paths = planner.generatePath(targetSpeed, 3, true);
+              } else if (count > 100) {
+                if (previous_path_x.size() < 2) {
+                  next_paths = planner.generatePath(targetSpeed, 3, false);
+                } else {
+                  next_paths = planner.extendPath(car_x, car_y, car_yaw, car_speed, targetSpeed, 3);
+                }
               } else {
-                next_paths = planner.extendPath(car_x, car_y, car_yaw, car_speed, targetSpeed, targetLane);
+                if (previous_path_x.size() < 2) {
+                  cout << "1" << endl;
+                  next_paths = planner.generatePath(targetSpeed, targetLane, false);
+                } else {
+                  cout << "2" << endl;
+                  next_paths = planner.extendPath(car_x, car_y, car_yaw, car_speed, targetSpeed, targetLane);
+                }
               }
               next_x_vals = next_paths.first;
               next_y_vals = next_paths.second;
@@ -144,7 +160,7 @@ int main() {
               //   next_y_vals = (vector<double>& ) previous_path_y;
               // }
             }
-            cout << "LOOP" << endl;
+            cout << "LOOP " << count << endl;
 
             json msgJson;
 

@@ -10,7 +10,7 @@
 
 using namespace std;
 
-const double FSM::SPEED_LIMIT = 50;
+const double FSM::SPEED_LIMIT = 45;
 
 map<FSM::STATE, vector<FSM::STATE> > FSM::NEXT_STATE {
 		{ FSM::notReady, vector<FSM::STATE> { FSM::notReady, FSM::ready }},
