@@ -4,6 +4,7 @@
 #include <chrono>
 #include <tuple>
 #include <iostream>
+#include <stdlib.h>
 #include <thread>
 #include <vector>
 #include "json.hpp"
@@ -73,9 +74,10 @@ int main() {
   FSM fsm = FSM(map_waypoints_x, map_waypoints_y);
   Planner planner = Planner(map_waypoints_x, map_waypoints_y, map_waypoints_s);
   int count = 0;
+  int prevLane = 2;
 
 
-  h.onMessage([&fsm, &planner, &count, &map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
+  h.onMessage([&fsm, &planner, &count, &prevLane, &map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
@@ -124,7 +126,7 @@ int main() {
               FSM::STATE nextState = fsm.run(car_x, car_y, car_s, car_d, car_yaw, car_speed, sensor_fusion);
               const double targetSpeed = fsm.targetSpeed;
               // const double targetLane = fsm.targetLane;
-              const double targetLane = 2;
+              const int targetLane = 2;
               
               const pair<vector<double>, vector<double> > next_paths = planner.generatePath(targetSpeed, targetLane, false);
             } else {
@@ -132,24 +134,24 @@ int main() {
               FSM::STATE nextState = fsm.run(car_x, car_y, car_s, car_d, car_yaw, car_speed, sensor_fusion);
               const double targetSpeed = fsm.targetSpeed;
               // const double targetLane = fsm.targetLane;
-              const double targetLane = 2;
+              srand(clock_time_ms());
+              const int targetLane = (int) (rand() % 3) + 1;
               pair<vector<double>, vector<double> > next_paths;
-              if (count == 100) {
-                cout << "count 100 generating new path" << endl;
-                next_paths = planner.generatePath(targetSpeed, 3, true);
+              if (count % 100 == 0) {
+                cout << "switching lanes to " << targetLane << endl;
+                prevLane = targetLane;
+                next_paths = planner.generatePath(targetSpeed, targetLane, true);
               } else if (count > 100) {
                 if (previous_path_x.size() < 2) {
-                  next_paths = planner.generatePath(targetSpeed, 3, false);
+                  next_paths = planner.generatePath(targetSpeed, prevLane, false);
                 } else {
-                  next_paths = planner.extendPath(car_x, car_y, car_yaw, car_speed, targetSpeed, 3);
+                  next_paths = planner.extendPath(car_x, car_y, car_yaw, car_speed, targetSpeed, prevLane);
                 }
               } else {
                 if (previous_path_x.size() < 2) {
-                  cout << "1" << endl;
-                  next_paths = planner.generatePath(targetSpeed, targetLane, false);
+                  next_paths = planner.generatePath(targetSpeed, prevLane, false);
                 } else {
-                  cout << "2" << endl;
-                  next_paths = planner.extendPath(car_x, car_y, car_yaw, car_speed, targetSpeed, targetLane);
+                  next_paths = planner.extendPath(car_x, car_y, car_yaw, car_speed, targetSpeed, prevLane);
                 }
               }
               next_x_vals = next_paths.first;

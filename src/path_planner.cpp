@@ -3,6 +3,7 @@
 #include <random>
 #include <tuple>
 #include <map>
+#include <algorithm>
 #include <math.h>
 #include "Eigen-3.3/Eigen/Core"
 #include "Eigen-3.3/Eigen/QR"
@@ -112,8 +113,9 @@ pair<vector<double>, vector<double> > Planner::generatePath(double targetSpeed, 
 	// getFrenetSpeed(x, y, yaw, v_ms*cos(yaw), v_ms*sin(yaw), maps_x, maps_y);
 
 	// s = ut + 1/2 * a * t^2, assuming linear kinematics, we apply a correction factor, if not no solution exists
+	const double ave_accel = min(8.0, (targetSpeedMs - start_speed) / PATH_PLANNING_HORIZON);
 	const double displacement = (start_speed_sd[0] * PATH_PLANNING_HORIZON +
-			 												0.5 * TARGET_AVG_ACCEL * PATH_PLANNING_HORIZON * PATH_PLANNING_HORIZON) 
+			 												0.5 * ave_accel * PATH_PLANNING_HORIZON * PATH_PLANNING_HORIZON) 
 															* NONLINEARITY_CORRECTION_FACTOR;
 
 	cout << s << ", start_s : " << start_s << " , end_s " << start_s + displacement << " , start_speed "  << start_speed << endl;
@@ -358,23 +360,23 @@ bool Planner::isFeasible(const vector<double>& s_coeffs, const vector<double>& d
 		const double vd = evalV(d_coeffs, i);
 		const double ad = evalA(d_coeffs, i);
 		if (sd > 13 || sd < 1) {
-			// cout << "infeasible sd " << sd<< endl;
+			cout << "infeasible sd " << sd<< endl;
 			return false;
 		}
 		if (fabs(vs) > MAX_VEL || vs < 0) {
-			// cout << "infeasible vs " << vs << endl;;
+			cout << "infeasible vs " << vs << endl;;
 			return false;
 		}
 		if (fabs(vd) > MAX_VEL) {
-			// cout << "infeasible vd " << vd << endl;
+			cout << "infeasible vd " << vd << endl;
 			return false;
 		}
 		if (fabs(as) > MAX_ACCEL || (as < 0 && fabs(as) > MAX_DECEL)) {
-			// cout << "infeasible as " << as << endl;
+			cout << "infeasible as " << as << endl;
 			return false;
 		}
 		if (fabs(ad) > MAX_ACCEL) {
-			// cout << "infeasible ad " << ad << endl;
+			cout << "infeasible ad " << ad << endl;
 			return false;
 		}
 
@@ -385,16 +387,15 @@ bool Planner::isFeasible(const vector<double>& s_coeffs, const vector<double>& d
 		const vector<double> currXY = getXY(ss, sd, maps_s, maps_x, maps_y);
 		const vector<double> nextXY = getXY(nextSS, nextSD, maps_s, maps_x, maps_y);
 		const double angleXY = atan2( (nextXY[1] - currXY[1]), (nextXY[0] - currXY[0]) ); // angle in X-Y coordinates
-		const double steering_angle = calcAngleDelta(currentHeading, steering_angle);
+		const double steering_angle = calcAngleDelta(currentHeading, angleXY);
 		currentHeading = angleXY;
 		if (steering_angle > deg2rad(MAX_STEER_ANGLE) ) {
 			if (PATH_PLANNER_DEBUG) {
-				// cout << "infeasible steering angle "  
-				// 	<< steering_angle << ", " 
-				// 	<< currentHeading << ", " 
-				// 	<< steering_angle << ", " 
-				// 	<< "(" << currXY[0] << "," << currXY[1] << ")" 
-				// 	<< " -> " << "(" << nextXY[0] << "," << nextXY[1] << ")" << endl;
+				cout << "infeasible steering angle "  
+					<< currentHeading << ", " 
+					<< steering_angle << ", " 
+					<< "(" << currXY[0] << "," << currXY[1] << ")" 
+					<< " -> " << "(" << nextXY[0] << "," << nextXY[1] << ")" << endl;
 			}
 			return false;
 		}
