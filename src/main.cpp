@@ -74,10 +74,8 @@ int main() {
   FSM fsm = FSM(map_waypoints_x, map_waypoints_y);
   Planner planner = Planner(map_waypoints_x, map_waypoints_y, map_waypoints_s);
   int count = 0;
-  int prevLane = 2;
 
-
-  h.onMessage([&fsm, &planner, &count, &prevLane, &map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
+  h.onMessage([&fsm, &planner, &count, &map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
@@ -112,6 +110,7 @@ int main() {
             double end_path_s = j[1]["end_path_s"];
             double end_path_d = j[1]["end_path_d"];
 
+
             planner.updatePrevPaths(previous_path_x, previous_path_y);
             planner.updateState(car_x, car_y, car_s, car_d, car_yaw, car_speed);
 
@@ -123,47 +122,23 @@ int main() {
             vector<double> next_y_vals;
             
             if (fsm.getCurrentState() == FSM::notReady) {
-              fsm.init(car_x, car_y, car_s, car_d, car_yaw, car_speed, sensor_fusion);
+              fsm.init(car_x, car_y, car_s, car_d, car_yaw, car_speed, sensor_fusion, planner);
               FSM::STATE nextState = fsm.run(car_x, car_y, car_s, car_d, car_yaw, car_speed, sensor_fusion);
               const double targetSpeed = fsm.targetSpeed;
-              // const double targetLane = fsm.targetLane;
-              const int targetLane = 2;
+              const double targetLane = fsm.targetLane;
               
-              const pair<vector<double>, vector<double> > next_paths = planner.generatePath(targetSpeed, targetLane, false);
+              next_x_vals = fsm.next_paths.first;
+              next_y_vals = fsm.next_paths.second;
             } else {
               // run
               FSM::STATE nextState = fsm.run(car_x, car_y, car_s, car_d, car_yaw, car_speed, sensor_fusion);
               const double targetSpeed = fsm.targetSpeed;
-              // const double targetLane = fsm.targetLane;
-              srand(clock_time_ms());
-              const int targetLane = (int) (rand() % 3) + 1;
-              pair<vector<double>, vector<double> > next_paths;
-              if (count % 100 == 0) {
-                cout << "switching lanes to " << targetLane << endl;
-                prevLane = targetLane;
-                next_paths = planner.generatePath(targetSpeed, targetLane, true);
-              } else if (count > 100) {
-                if (previous_path_x.size() < 2) {
-                  next_paths = planner.generatePath(targetSpeed, prevLane, false);
-                } else {
-                  next_paths = planner.extendPath(car_x, car_y, car_yaw, car_speed, targetSpeed, prevLane);
-                }
-              } else {
-                if (previous_path_x.size() < 2) {
-                  next_paths = planner.generatePath(targetSpeed, prevLane, false);
-                } else {
-                  next_paths = planner.extendPath(car_x, car_y, car_yaw, car_speed, targetSpeed, prevLane);
-                }
-              }
-              next_x_vals = next_paths.first;
-              next_y_vals = next_paths.second;
-              // if (previous_path_x.size() < 50) {
-              // } else {
-              //   next_x_vals = (vector<double>& ) previous_path_x;
-              //   next_y_vals = (vector<double>& ) previous_path_y;
-              // }
+              const double targetLane = fsm.targetLane;
+
+              next_x_vals = fsm.next_paths.first;
+              next_y_vals = fsm.next_paths.second;
             }
-            cout << "LOOP " << count << endl;
+            cout << "[Main] LOOP " << count << endl;
 
             json msgJson;
 
