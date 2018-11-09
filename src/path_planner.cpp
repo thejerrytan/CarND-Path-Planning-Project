@@ -3,6 +3,8 @@
 #include <random>
 #include <tuple>
 #include <map>
+#include <thread>
+#include <chrono>
 #include <algorithm>
 #include <math.h>
 #include "Eigen-3.3/Eigen/Core"
@@ -173,7 +175,7 @@ tuple<bool, vector<double>, vector<double> > Planner::generatePath(double target
 	vector<vector<double> > possibleSTrajectories;
 	vector<vector<double> > possibleDTrajectories;
 	vector<double> Ts;
-	const vector<tuple<double, double, double> > endConfig = generateEndConfigurations(SAMPLE_SIZE, fmod(start_s + displacement, MAX_S), LANE_CENTER[targetLane], PATH_PLANNING_HORIZON);
+	const vector<tuple<double, double, double> > endConfig = generateEndConfigurations(SAMPLE_SIZE, start_s + displacement, LANE_CENTER[targetLane], PATH_PLANNING_HORIZON);
 	
 	if (PATH_PLANNER_DEBUG) cout << "[PathPlanner] Time elapsed: " 
 		<< (currTimestamp - this->prevTimestamp) << " ms, start_accel_s " 
@@ -256,7 +258,7 @@ tuple<bool, vector<double>, vector<double> > Planner::generatePath(double target
 		this->prevSCoeffs = s_coeffs;
 		this->prevDCoeffs = d_coeffs;
 		for (double i = 0; i < T; i+=tDelta) {
-			const double next_s = eval(s_coeffs, i);
+			const double next_s = fmod(eval(s_coeffs, i), MAX_S);
 			const double next_d = eval(d_coeffs, i);
 			const double s_accel = evalA(s_coeffs, i);
 			const double d_accel = evalA(d_coeffs, i);
@@ -282,12 +284,27 @@ tuple<bool, vector<double>, vector<double> > Planner::generatePath(double target
 		hasPath = false;
 	}
 	this->prevTimestamp = currTimestamp;
+	if (PATH_PLANNER_DEBUG) cout << "[PathPlanner] Time taken : " << (clock_time_ms() - currTimestamp) << " ms" << endl;
+	if (PATH_PLANNER_DEBUG) cout << "[PathPlanner] Size before pop : " << accelDs.size() << endl;
+	// adjustForLatency((int) ceil( (clock_time_ms() - currTimestamp) / 20), next_xs, next_ys, next_ss, next_ds, accelSs, accelDs );
+	if (PATH_PLANNER_DEBUG) cout << "[PathPlanner] Size after pop : " << accelSs.size() << endl;
 	if (next_xs.size() >= 5) {
 		pair<vector<double>, vector<double> > smoothed = smoothenPath(next_xs, next_ys, next_ss, next_ds, accelSs, accelDs);
 		return make_tuple(hasPath, smoothed.first, smoothed.second);
 	} else {
 		return make_tuple(hasPath, next_xs, next_ys);
 	}
+}
+
+void Planner::adjustForLatency(int numToPop, vector<double>& xs, vector<double>& ys, vector<double>& ss, vector<double>& ds, vector<double>& as, vector<double>& ad) {
+	numToPop = 2;
+	if (PATH_PLANNER_DEBUG) cout << "[PathPlanner] Num to pop: " << numToPop << endl;
+	if (xs.size() > numToPop) xs.erase(xs.begin(), xs.begin()+numToPop);
+	if (ys.size() > numToPop) ys.erase(ys.begin(), ys.begin()+numToPop);
+	if (ss.size() > numToPop) ss.erase(ss.begin(), ss.begin()+numToPop);
+	if (ds.size() > numToPop) ds.erase(ds.begin(), ds.begin()+numToPop);
+	if (as.size() > numToPop) as.erase(as.begin(), as.begin()+numToPop);
+	if (ad.size() > numToPop) ad.erase(ad.begin(), ad.begin()+numToPop);
 }
 
 // mostly for lane keeping, targetSpeed and v is in mph
@@ -303,7 +320,9 @@ pair<vector<double>, vector<double> > Planner::extendPath(double targetSpeed, in
 	next_xs = prevPathX;
 	next_ys = prevPathY;
 
+	if (PATH_PLANNER_DEBUG) cout << "[PathPlanner] prevXYAccelSD size " << prevXYAccelSD.size() << endl;
 	int numOfXYPassed = prevXYAccelSD.size() - size;
+	if (numOfXYPassed < 0) numOfXYPassed = 0;
 
 
 	for (int i = numOfXYPassed; i < prevXYAccelSD.size(); ++i) {
@@ -378,6 +397,7 @@ pair<vector<double>, vector<double> > Planner::smoothenPath(const vector<double>
 		xyAccelSD.push_back(make_tuple(evalX, evalY, accelS[i], accelD[i], pathS[i], pathD[i]));
 	}
 	this->prevXYAccelSD = xyAccelSD;
+	cout << "[PathPlanner] smoothedX size is " << smoothedX.size() << endl;
 	return make_pair(smoothedX, smoothedY);
 }
 

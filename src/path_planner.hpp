@@ -28,9 +28,9 @@ class Planner {
 		constexpr static double NONLINEARITY_CORRECTION_FACTOR = 0.6;
 		constexpr static double MAX_S = 6945.554;
 		constexpr static double MAX_VEL = 22.00;  // ms-1, <50 mph
-		constexpr static double MAX_ACCEL = 10.0; // ms-2
+		constexpr static double MAX_ACCEL = 9.0; // ms-2
 		constexpr static double MAX_DECEL = 4.0; // ms-2
-		constexpr static double MAX_JERK = 10.0; // ms-3
+		constexpr static double MAX_JERK = 9.0; // ms-3
 		constexpr static double MAX_STEER_ANGLE = 60; // degrees
 		constexpr static double SIGMA_D = 0.25;
 		constexpr static double SIGMA_S = 50;
@@ -71,6 +71,15 @@ class Planner {
 			const vector<double>& pathS,
 			const vector<double>& accelS,
 			const vector<double>& accelD);
+		void adjustForLatency(
+			int numToPop, 
+			vector<double>& xs, 
+			vector<double>& ys, 
+			vector<double>& ss, 
+			vector<double>& ds, 
+			vector<double>& as, 
+			vector<double>& ad
+		);
 		void generateTrajectoriesForPredictions(const double T);
 		vector<double> calculateDeltaSD(const double theta);
 		double getSpeedAtEndOfPath();
