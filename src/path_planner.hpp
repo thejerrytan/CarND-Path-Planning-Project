@@ -33,7 +33,7 @@ class Planner {
 		constexpr static double MAX_JERK = 9.0; // ms-3
 		constexpr static double MAX_STEER_ANGLE = 60; // degrees
 		constexpr static double SIGMA_D = 0.25;
-		constexpr static double SIGMA_S = 50;
+		constexpr static double SIGMA_S = 10;
 		constexpr static double SIGMA_T = 2;
 		constexpr static int SAMPLE_SIZE = 100;
 		constexpr static double CAR_S_SAFETY_DISTANCE = 30;
@@ -62,9 +62,10 @@ class Planner {
 		double evalA(const vector<double>& coeffs, double T);
 		double evalJ(const vector<double>& coeffs, double T);
 		vector<tuple<double, double, double> > generateEndConfigurations(int n, double center_s, double center_d, double T);
-		bool isFeasible(const vector<double>& s_coeffs, const vector<double>& d_coeffs);
+		bool isFeasible(int startIdx, const vector<double>& s_coeffs, const vector<double>& d_coeffs);
 		double calculateCost(const vector<double>& s_coeffs, const vector<double>& d_coeffs, int targetLane, double elapsedTime);
 		pair<vector<double>, vector<double> > smoothenPath(
+			int startIdx,
 			const vector<double>& pathX, 
 			const vector<double>& pathY,
 			const vector<double>& pathD,
@@ -82,8 +83,8 @@ class Planner {
 		);
 		void generateTrajectoriesForPredictions(const double T);
 		vector<double> calculateDeltaSD(const double theta);
-		double getSpeedAtEndOfPath();
-		double getYawAtEndOfPath();
+		double getSpeedAtEndOfPath(int idx);
+		double getYawAtEndOfPath(int idx);
 };
 
 #endif

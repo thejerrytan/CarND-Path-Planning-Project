@@ -193,7 +193,7 @@ void FSM::updateLocalization(double x, double y, double s, double d, double yaw,
 	nearestWaypoint = ClosestWaypoint(x, y, maps_x, maps_y);
 	nextWaypoint = NextWaypoint(x, y, yaw, maps_x, maps_y);
 	if (DEBUG) cout << "[FSM] Localization: x, y, s, d, yaw, v, currentLane" << endl; 
-  	if (DEBUG) cout << "[FMS] " << x << " " << y << " " << s << " " << d << " " << yaw << " " << v << " " << currentLane << endl;
+  	if (DEBUG) cout << "[FSM] " << x << " " << y << " " << s << " " << d << " " << yaw << " " << v << " " << currentLane << endl;
 }
 
 void FSM::updatePredictions(const vector<vector<double> >& newPredictions) {

@@ -146,20 +146,29 @@ tuple<bool, vector<double>, vector<double> > Planner::generatePath(double target
 	// Specify initial conditions
 	double start_x, start_y, start_s, start_d, start_yaw, start_speed, start_accel_s, start_accel_d;
 	int size = prevXYAccelSD.size();
+	int appendIdx = size / 2;
 	int numOfXYPassed = prevXYAccelSD.size() - prevPathX.size();
 	if (numOfXYPassed > 0) {
-		start_accel_s = appendOnly ? get<2>(prevXYAccelSD[size-1]) : get<2>(prevXYAccelSD[numOfXYPassed]);
-		start_accel_d = appendOnly ? get<3>(prevXYAccelSD[size-1]) : get<3>(prevXYAccelSD[numOfXYPassed]);
+		// start_accel_s = appendOnly ? get<2>(prevXYAccelSD[size-1]) : get<2>(prevXYAccelSD[numOfXYPassed]);
+		// start_accel_d = appendOnly ? get<3>(prevXYAccelSD[size-1]) : get<3>(prevXYAccelSD[numOfXYPassed]);
+		start_accel_s = appendOnly ? get<2>(prevXYAccelSD[appendIdx]) : get<2>(prevXYAccelSD[numOfXYPassed]);
+		start_accel_d = appendOnly ? get<3>(prevXYAccelSD[appendIdx]) : get<3>(prevXYAccelSD[numOfXYPassed]);
 	} else {
 		start_accel_s = 0.0;
 		start_accel_d = 0.0;
 	}
-	start_x = appendOnly ? get<0>(prevXYAccelSD[size-1]) : x;
-	start_y = appendOnly ? get<1>(prevXYAccelSD[size-1]) : y;
-	start_s = appendOnly ? get<4>(prevXYAccelSD[size-1]) : s;
-	start_d = appendOnly ? get<5>(prevXYAccelSD[size-1]) : d;
-	start_yaw = appendOnly ? getYawAtEndOfPath() : yaw;
-	start_speed = appendOnly ? getSpeedAtEndOfPath() : v_ms;
+	// start_x = appendOnly ? get<0>(prevXYAccelSD[size-1]) : x;
+	// start_y = appendOnly ? get<1>(prevXYAccelSD[size-1]) : y;
+	// start_s = appendOnly ? get<4>(prevXYAccelSD[size-1]) : s;
+	// start_d = appendOnly ? get<5>(prevXYAccelSD[size-1]) : d;
+	// start_yaw = appendOnly ? getYawAtEndOfPath() : yaw;
+	// start_speed = appendOnly ? getSpeedAtEndOfPath() : v_ms;
+	start_x = appendOnly ? get<0>(prevXYAccelSD[appendIdx]) : x;
+	start_y = appendOnly ? get<1>(prevXYAccelSD[appendIdx]) : y;
+	start_s = appendOnly ? get<4>(prevXYAccelSD[appendIdx]) : s;
+	start_d = appendOnly ? get<5>(prevXYAccelSD[appendIdx]) : d;
+	start_yaw = appendOnly ? getYawAtEndOfPath(appendIdx) : yaw;
+	start_speed = appendOnly ? getSpeedAtEndOfPath(appendIdx) : v_ms;
 	
 	// work in frenet coordinates
 	const vector<double> start_speed_sd = getFrenetSpeed(start_x, start_y, start_yaw, start_speed*cos(start_yaw), start_speed*sin(start_yaw), maps_x, maps_y);
@@ -188,8 +197,8 @@ tuple<bool, vector<double>, vector<double> > Planner::generatePath(double target
 		const double endS = get<0>(p);
 		const double endD = get<1>(p);
 		const double T = get<2>(p);
-		// cout << "Start S: " << startS << ", " << startSDot << ", " << startSDotDot << endl;
-		// cout << "End S: " << endS << ", " << endSDot << ", " << endSDotDot << endl;
+		// cout << "Start S: " << start_s << ", " << startSDot << endl;
+		// cout << "End S: " << endS << endl;
 		// cout << "T is " << T << ", displacement " << displacement << ", " << endD << endl;
 		const vector<double> startSCoeffs = { start_s, startSDot, start_accel_s };
 		const vector<double> endSCoeffs = { endS, targetSpeedMs, 0 };
@@ -203,7 +212,7 @@ tuple<bool, vector<double>, vector<double> > Planner::generatePath(double target
 		// }
 		vector<double> d_coeffs = JMT(startDCoeffs, endDCoeffs, T);
 		// cout << "START and END for d: " << end
-		if (isFeasible(s_coeffs, d_coeffs)) {
+		if (isFeasible(appendIdx, s_coeffs, d_coeffs)) {
 			possibleSTrajectories.push_back(s_coeffs);
 			possibleDTrajectories.push_back(d_coeffs);
 			Ts.push_back(T);
@@ -238,21 +247,19 @@ tuple<bool, vector<double>, vector<double> > Planner::generatePath(double target
 	}
 
 	if (PATH_PLANNER_DEBUG) cout << "[PathPlanner] Min cost " << minCost << endl;
+	
 	// Generate chosen trajectory
 	vector<double> next_xs, next_ys, next_ss, next_ds, accelSs, accelDs;
-	if (appendOnly) {
-		next_xs = prevPathX;
-		next_ys = prevPathY;
-		for (int i = numOfXYPassed; i < prevXYAccelSD.size(); ++i) {
+	if (s_coeffs.size() > 0) {
+		const double tDelta = 0.02;
+		next_xs = vector<double>(prevPathX.begin(), prevPathX.begin()+appendIdx);
+		next_ys = vector<double>(prevPathY.begin(), prevPathY.begin()+appendIdx);
+		for (int i = numOfXYPassed; i < appendIdx + numOfXYPassed; ++i) {
 			accelSs.push_back(get<2>(prevXYAccelSD[i]));
 			accelDs.push_back(get<3>(prevXYAccelSD[i]));
 			next_ss.push_back(get<4>(prevXYAccelSD[i]));
 			next_ds.push_back(get<5>(prevXYAccelSD[i]));
 		}
-	}
-
-	if (s_coeffs.size() > 0) {
-		const double tDelta = 0.02;
 		// for (auto s: s_coeffs) { cout << s << ","; }
 		// cout << endl;
 		this->prevSCoeffs = s_coeffs;
@@ -266,10 +273,10 @@ tuple<bool, vector<double>, vector<double> > Planner::generatePath(double target
 			// cout << next_s << ", " << next_d << ", " << xy[0] << ", " << xy[1] << endl;
 			next_ss.push_back(next_s);
 			next_ds.push_back(next_d);
-		  next_xs.push_back(xy[0]);
-		  next_ys.push_back(xy[1]);
-		  accelSs.push_back(s_accel);
-		  accelDs.push_back(d_accel);
+		  	next_xs.push_back(xy[0]);
+		  	next_ys.push_back(xy[1]);
+		  	accelSs.push_back(s_accel);
+		  	accelDs.push_back(d_accel);
 		}
 		// Save sd-coordinates of end of generated trajectory
 		endOfCurrentTrajectory.clear();
@@ -278,18 +285,23 @@ tuple<bool, vector<double>, vector<double> > Planner::generatePath(double target
 		hasTrajectoryBefore = true;
 		hasBeenTruncated = false;
 	} else {
-		if (PATH_PLANNER_DEBUG) cout << "[PathPlanner] Use previous trajectory" << endl;
+		// keep previous trajectory
+		if (PATH_PLANNER_DEBUG) cout << "[PathPlanner] No trajectory found. Use previous trajectory" << endl;
 		next_xs = prevPathX;
 		next_ys = prevPathY;
+		for (int i = numOfXYPassed; i < prevXYAccelSD.size(); ++i) {
+			accelSs.push_back(get<2>(prevXYAccelSD[i]));
+			accelDs.push_back(get<3>(prevXYAccelSD[i]));
+			next_ss.push_back(get<4>(prevXYAccelSD[i]));
+			next_ds.push_back(get<5>(prevXYAccelSD[i]));
+		}
 		hasPath = false;
 	}
 	this->prevTimestamp = currTimestamp;
 	if (PATH_PLANNER_DEBUG) cout << "[PathPlanner] Time taken : " << (clock_time_ms() - currTimestamp) << " ms" << endl;
-	if (PATH_PLANNER_DEBUG) cout << "[PathPlanner] Size before pop : " << accelDs.size() << endl;
 	// adjustForLatency((int) ceil( (clock_time_ms() - currTimestamp) / 20), next_xs, next_ys, next_ss, next_ds, accelSs, accelDs );
-	if (PATH_PLANNER_DEBUG) cout << "[PathPlanner] Size after pop : " << accelSs.size() << endl;
 	if (next_xs.size() >= 5) {
-		pair<vector<double>, vector<double> > smoothed = smoothenPath(next_xs, next_ys, next_ss, next_ds, accelSs, accelDs);
+		pair<vector<double>, vector<double> > smoothed = smoothenPath(0, next_xs, next_ys, next_ss, next_ds, accelSs, accelDs);
 		return make_tuple(hasPath, smoothed.first, smoothed.second);
 	} else {
 		return make_tuple(hasPath, next_xs, next_ys);
@@ -320,7 +332,6 @@ pair<vector<double>, vector<double> > Planner::extendPath(double targetSpeed, in
 	next_xs = prevPathX;
 	next_ys = prevPathY;
 
-	if (PATH_PLANNER_DEBUG) cout << "[PathPlanner] prevXYAccelSD size " << prevXYAccelSD.size() << endl;
 	int numOfXYPassed = prevXYAccelSD.size() - size;
 	if (numOfXYPassed < 0) numOfXYPassed = 0;
 
@@ -338,9 +349,13 @@ pair<vector<double>, vector<double> > Planner::extendPath(double targetSpeed, in
 	
 	const int TARGET_NUM_PTS = (int) ceil(PATH_PLANNING_HORIZON/0.02);
 	const int ptsToAdd = (int) TARGET_NUM_PTS - size;
+	int ptsAdded = 0;
+	assert(size == next_ss.size());
 	if (PATH_PLANNER_DEBUG) cout << "[PathPlanner] prevPathX size: " << size <<  " numOfXYPassed " << numOfXYPassed << ", ptsToAdd " << ptsToAdd << endl;
 	const double deltaS = next_ss[size-1] - next_ss[size-2];
 	const double deltaD = next_ds[size-1] - next_ds[size-2];
+
+	// cout << "[PathPlanner] deltaS " << deltaS << " , " << "deltaD " << deltaD << endl; 
 
 	if (ptsToAdd > 0) {
 		double prevS = next_ss[size-1];
@@ -356,6 +371,7 @@ pair<vector<double>, vector<double> > Planner::extendPath(double targetSpeed, in
 			accelD.push_back(0);
 			next_ss.push_back(prevS);
 			next_ds.push_back(prevD);
+			ptsAdded++;
 			if ( prevS > distToCarAhead[targetLane] - CAR_S_SAFETY_DISTANCE) { 
 				hasBeenTruncated = true;
 				cout << "[PathPlanner] truncated!" << endl;
@@ -364,41 +380,63 @@ pair<vector<double>, vector<double> > Planner::extendPath(double targetSpeed, in
 				hasBeenTruncated = false;
 			}
 		}
-		return smoothenPath(next_xs, next_ys, next_ss, next_ds, accelS, accelD);
+		return smoothenPath(0, next_xs, next_ys, next_ss, next_ds, accelS, accelD);
 	} else {
 		return make_pair(next_xs, next_ys);
 	}
 }
 
 // pathX and pathY must be sorted in ascending X
-pair<vector<double>, vector<double> > Planner::smoothenPath(const vector<double>& pathX, const vector<double>& pathY, const vector<double>& pathS, const vector<double>& pathD, const vector<double>& accelS, const vector<double>& accelD) {
-	tk::spline xt, yt;
+pair<vector<double>, vector<double> > Planner::smoothenPath(
+	int startIdx, 
+	const vector<double>& pathX, 
+	const vector<double>& pathY, 
+	const vector<double>& pathS, 
+	const vector<double>& pathD, 
+	const vector<double>& accelS, 
+	const vector<double>& accelD) 
+{
+	cout << "[PathPlanner] Smoothen Path starting from " << startIdx << endl;
 	vector<tuple<double, double, double, double, double, double> > xyAccelSD;
-	const int POINTS_TO_FIT = 5;
-	assert(pathX.size() >= POINTS_TO_FIT);
-	const int START = 0;
-	const int END = pathX.size() - 1;
-	const int MID = (int) (END - START) / 2;
-	const int FIRST_QUARTILE = (int) (MID - START) / 2;
-	const int THIRD_QUARTILE = (int) (MID + END) / 2;
-	vector<double> smoothedX, smoothedY;
-	xt.set_points( { 0.02*START, 0.02*FIRST_QUARTILE, .02*MID, .02*THIRD_QUARTILE, .02*END },
-								 { pathX[START], pathX[FIRST_QUARTILE], pathX[MID], pathX[THIRD_QUARTILE], pathX[END] } );
+	const int POINTS_TO_FIT = 7;
+	if (pathX.size() >= (startIdx + POINTS_TO_FIT)) {
+		tk::spline xt, yt;
+		const int START = startIdx + 0;
+		const int END = pathX.size() - 1;
+		const int MID = (int) (END + START) / 2;
+		const int FIRST_QUARTILE = (int) (MID + START) / 2;
+		const int THIRD_QUARTILE = (int) (MID + END) / 2;
+		vector<double> smoothedX, smoothedY;
+		xt.set_points( { 0.02*START, 0.02*(START+1), 0.02*(START+2), 0.02*FIRST_QUARTILE, .02*MID, .02*THIRD_QUARTILE, .02*END },
+									 { pathX[START], pathX[START+1], pathX[START+2], pathX[FIRST_QUARTILE], pathX[MID], pathX[THIRD_QUARTILE], pathX[END] } );
 
-	yt.set_points( { 0.02*START, 0.02*FIRST_QUARTILE, .02*MID, .02*THIRD_QUARTILE, .02*END },
-								 { pathY[START], pathY[FIRST_QUARTILE], pathY[MID], pathY[THIRD_QUARTILE], pathY[END] } );
+		yt.set_points( { 0.02*START, 0.02*(START+1), 0.02*(START+2), 0.02*FIRST_QUARTILE, .02*MID, .02*THIRD_QUARTILE, .02*END },
+									 { pathY[START], pathY[START+1], pathY[START+2], pathY[FIRST_QUARTILE], pathY[MID], pathY[THIRD_QUARTILE], pathY[END] } );
 
-	for (int i = 0; i < pathX.size(); ++i ) {
-		const double evalX = xt(.02*i);
-		const double evalY = yt(.02*i);
-		smoothedX.push_back(evalX);
-		smoothedY.push_back(evalY);
-		// we need to use the smoothed xy values here
-		xyAccelSD.push_back(make_tuple(evalX, evalY, accelS[i], accelD[i], pathS[i], pathD[i]));
+		for (int i = 0; i < pathX.size(); ++i ) {
+			if (i < startIdx) {
+				smoothedX.push_back(pathX[i]);
+				smoothedY.push_back(pathY[i]);
+				xyAccelSD.push_back(make_tuple(pathX[i], pathY[i], accelS[i], accelD[i], pathS[i], pathD[i]));
+			} else {
+				const double evalX = xt(.02*i);
+				const double evalY = yt(.02*i);
+				smoothedX.push_back(evalX);
+				smoothedY.push_back(evalY);
+				// we need to use the smoothed xy values here
+				xyAccelSD.push_back(make_tuple(evalX, evalY, accelS[i], accelD[i], pathS[i], pathD[i]));
+			}
+		}
+		this->prevXYAccelSD = xyAccelSD;
+		return make_pair(smoothedX, smoothedY);
+	} else {
+		assert(pathX.size() == pathS.size());
+		for (int i = 0; i < pathX.size(); ++i) {
+			xyAccelSD.push_back(make_tuple(pathX[i], pathY[i], accelS[i], accelD[i], pathS[i], pathD[i]));
+		}
+		this->prevXYAccelSD = xyAccelSD;
+		return make_pair(pathX, pathY);
 	}
-	this->prevXYAccelSD = xyAccelSD;
-	cout << "[PathPlanner] smoothedX size is " << smoothedX.size() << endl;
-	return make_pair(smoothedX, smoothedY);
 }
 
 // evaluate displacement at time t
@@ -437,8 +475,13 @@ vector<tuple<double, double, double> > Planner::generateEndConfigurations(int n,
 	return results;
 }
 
-bool Planner::isFeasible(const vector<double>& s_coeffs, const vector<double>& d_coeffs) {
-	double currentHeading = yaw;
+// startIdx - idx where trajectory to be evaluated will be joined to previous generated trajectory, prevXYAccelSD
+bool Planner::isFeasible(int startIdx, const vector<double>& s_coeffs, const vector<double>& d_coeffs) {
+	// calculate heading at start of trajectory
+	const vector<double> startXY = getXY(get<4>(prevXYAccelSD[startIdx-1]), get<5>(prevXYAccelSD[startIdx-1]), maps_s, maps_x, maps_y);
+	const vector<double> nextXY = getXY(get<4>(prevXYAccelSD[startIdx]), get<5>(prevXYAccelSD[startIdx]), maps_s, maps_x, maps_y); 
+	double currentHeading = atan2( (nextXY[1] - startXY[1]), (nextXY[0] - startXY[0]) ); // angle in X-Y coordinates
+	
 	const double deltaT = 0.02;
 	const int NUM_PTS = (int) floor(PATH_PLANNING_HORIZON / deltaT);
 	for (int i = 0; i < PATH_PLANNING_HORIZON; ++i) {
@@ -452,20 +495,24 @@ bool Planner::isFeasible(const vector<double>& s_coeffs, const vector<double>& d
 			cout << "[PathPlanner] infeasible sd " << sd << endl;
 			return false;
 		}
-		if (fabs(vs) > MAX_VEL || vs < 0) {
-			cout << "[PathPlanner] infeasible vs " << vs << endl;;
+		if (fabs(sqrt(vs*vs + vd*vd)) > MAX_VEL) {
+			cout << "[PathPlanner] infeasible velocity " << fabs(sqrt(vs*vs + vd*vd)) << endl;
 			return false;
 		}
-		if (fabs(vd) > MAX_VEL) {
-			cout << "[PathPlanner] infeasible vd " << vd << endl;
+		if (vs < 0) {
+			cout << "[PathPlanner] infeasible vs < 0 " << vs << endl;
 			return false;
 		}
 		if (fabs(as) > MAX_ACCEL || (as < 0 && fabs(as) > MAX_DECEL)) {
-			cout << "[PathPlanner] infeasible as " << as << endl;
+			cout << "[PathPlanner] infeasible accT - as " << as << endl;
 			return false;
 		}
 		if (fabs(ad) > MAX_ACCEL) {
-			cout << "[PathPlanner] infeasible ad " << ad << endl;
+			cout << "[PathPlanner] infeasible accN - ad " << ad << endl;
+			return false;
+		}
+		if (fabs(sqrt(as*as + ad*ad)) > MAX_ACCEL) {
+			cout << "[PathPlanner] infeasible accTotal - " << fabs(sqrt(as*as + ad*ad)) << endl;
 			return false;
 		}
 
@@ -580,20 +627,20 @@ vector<double> Planner::calculateDeltaSD(const double theta) {
 }
 
 // speed - scalar, ms-1
-double Planner::getSpeedAtEndOfPath() {
+double Planner::getSpeedAtEndOfPath(int idx) {
 	if (prevPathX.size() > 1) {
-		const double deltaX = prevPathX[prevPathX.size()-1] - prevPathX[prevPathX.size()-2];
-		const double deltaY = prevPathY[prevPathY.size()-1] - prevPathY[prevPathY.size()-2];
+		const double deltaX = prevPathX[idx] - prevPathX[idx-1];
+		const double deltaY = prevPathY[idx] - prevPathY[idx-1];
 		return sqrt(deltaX * deltaX + deltaY * deltaY) / 0.02;
 	} else {
 		return 0.0;
 	}
 }
 
-double Planner::getYawAtEndOfPath() {
+double Planner::getYawAtEndOfPath(int idx) {
 	if (prevPathX.size() > 1) {
-		const double deltaX = prevPathX[prevPathX.size()-1] - prevPathX[prevPathX.size()-2];
-		const double deltaY = prevPathY[prevPathY.size()-1] - prevPathY[prevPathY.size()-2];
+		const double deltaX = prevPathX[idx] - prevPathX[idx-1];
+		const double deltaY = prevPathY[idx] - prevPathY[idx-1];
 		return atan2(deltaY, deltaX);
 	} else {
 		return yaw;
