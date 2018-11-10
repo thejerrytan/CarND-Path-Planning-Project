@@ -24,9 +24,10 @@ public:
 private:
 	// cars within s_buffer in s coordinates behind us should be considered in lane speed calc
 	constexpr static double S_BUFFER = 10;
+	constexpr static double CAR_S_SAFETY_DISTANCE = 30;
 	constexpr static int GOAL_HORIZON = 10;
 	constexpr static double SPEED_INCREMENT = 0.5; // mph
-	const static double SPEED_LIMIT; //mph
+	static double SPEED_LIMIT; //mph
 	static map<STATE, vector<STATE> > NEXT_STATE;
 	map<int, double> laneSpeeds;
 	vector<double> maps_x;

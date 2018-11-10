@@ -11,7 +11,7 @@
 
 using namespace std;
 
-const double FSM::SPEED_LIMIT = 45;
+double FSM::SPEED_LIMIT = 47; // mph
 
 map<FSM::STATE, vector<FSM::STATE> > FSM::NEXT_STATE {
 		{ FSM::notReady, vector<FSM::STATE> { FSM::notReady, FSM::ready }},
@@ -94,8 +94,10 @@ FSM::STATE FSM::run(double x, double y, double s, double d, double yaw, double v
 	updateLaneSpeeds();
 
 	// Modify speed factor based on feedback from PathPlanner
-	if (planner->hasBeenTruncated) slowDown = min(10.0, slowDown + SPEED_INCREMENT);
-	else slowDown = max(0.0, slowDown - SPEED_INCREMENT); 
+	const double distToCarAhead = planner->distToCarAhead[currentLane];
+	cout << "[FSM] dist to car ahead is : " << distToCarAhead << endl;
+	if (distToCarAhead < CAR_S_SAFETY_DISTANCE) slowDown = min(5.0, (double) CAR_S_SAFETY_DISTANCE - distToCarAhead);
+	else slowDown = 0;
 
 	for (auto p: laneSpeeds) {
 		if (p.first == 1 || p.first == 2 || p.first == 3) {

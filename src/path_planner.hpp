@@ -10,7 +10,7 @@ class Planner {
 		Planner(const vector<double>& maps_x, const vector<double>& maps_y, const vector<double>& maps_s);
 		virtual ~Planner();
 		// generate a trajectory by choosing lowest cost among many possible end configuration states
-		tuple<bool, vector<double>, vector<double> > generatePath(double targetSpeed, int targetLane, bool appendOnly);
+		tuple<bool, vector<double>, vector<double> > generatePath(double targetSpeed, int targetLane, int appendIdx);
 		// extends an existing feasible trajectory without changing the final configuration, except for s-coordinate
 		pair<vector<double>, vector<double> > extendPath(double targetSpeed, int targetLane);
 		void init(const double x, const double y, const double s, const double d, const double yaw, const double v);
@@ -20,6 +20,8 @@ class Planner {
 		bool hasReachedEndOfTrajectory();
 		bool hasTrajectory();
 
+		map<int, double> distToCarAhead; 
+		map<int, double> distToCarBehind; 
 		bool hasBeenTruncated;
 
 	private:
@@ -27,15 +29,16 @@ class Planner {
 		constexpr static double TARGET_AVG_ACCEL = 8.0; // ms-2
 		constexpr static double NONLINEARITY_CORRECTION_FACTOR = 0.6;
 		constexpr static double MAX_S = 6945.554;
-		constexpr static double MAX_VEL = 22.00;  // ms-1, <50 mph
+		constexpr static double MAX_VEL = 21.00;  // ms-1, <50 mph
 		constexpr static double MAX_ACCEL = 9.0; // ms-2
-		constexpr static double MAX_DECEL = 4.0; // ms-2
+		constexpr static double MAX_S_DECEL = 6.0; // ms-2
+		constexpr static double MAX_D_DECEL = 2.0; // ms-2
 		constexpr static double MAX_JERK = 9.0; // ms-3
-		constexpr static double MAX_STEER_ANGLE = 60; // degrees
+		constexpr static double MAX_STEER_ANGLE = 40; // degrees
 		constexpr static double SIGMA_D = 0.25;
-		constexpr static double SIGMA_S = 10;
+		constexpr static double SIGMA_S = 15;
 		constexpr static double SIGMA_T = 2;
-		constexpr static int SAMPLE_SIZE = 100;
+		constexpr static int SAMPLE_SIZE = 80;
 		constexpr static double CAR_S_SAFETY_DISTANCE = 30;
 		constexpr static double CAR_D_SAFETY_DISTANCE = 0.25;
 		constexpr static double CAR_S_COLLISION_DISTANCE = 5;
@@ -48,7 +51,6 @@ class Planner {
 		vector<tuple<double, double, double, double, double, double> > prevXYAccelSD;
 		vector<vector<double> > predictions;
 		vector<vector<pair<double, double> > > trajectories;
-		map<int, double> distToCarAhead;
 		vector<double> prevPathX;
 		vector<double> prevPathY;
 		vector<double> prevSCoeffs;
@@ -72,19 +74,9 @@ class Planner {
 			const vector<double>& pathS,
 			const vector<double>& accelS,
 			const vector<double>& accelD);
-		void adjustForLatency(
-			int numToPop, 
-			vector<double>& xs, 
-			vector<double>& ys, 
-			vector<double>& ss, 
-			vector<double>& ds, 
-			vector<double>& as, 
-			vector<double>& ad
-		);
 		void generateTrajectoriesForPredictions(const double T);
-		vector<double> calculateDeltaSD(const double theta);
-		double getSpeedAtEndOfPath(int idx);
-		double getYawAtEndOfPath(int idx);
+		double getSpeedAtPath(int idx);
+		double getYawAtPath(int idx);
 };
 
 #endif
