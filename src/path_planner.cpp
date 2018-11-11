@@ -56,6 +56,8 @@ void Planner::updateState(double x, double y, double s, double d, double yaw, do
 	this->d = d;
 	this->yaw = yaw;
 	this->v = v;
+	this->currentLane = calcCurrentLane(d);
+
 	if (hasReachedEndOfTrajectory()) {
 		endOfCurrentTrajectory.clear();
 	}
@@ -69,6 +71,10 @@ void Planner::updateState(double x, double y, double s, double d, double yaw, do
 
 		distTravelled = sqrt((finalX-initialX)*(finalX-initialX) + (finalY-initialY)*(finalY-initialY));
 	}
+
+	generateTrajectoriesForPredictions(PATH_PLANNING_HORIZON);
+	isOnCollisionCourse = onCollisionCourse();
+	if (isOnCollisionCourse) cout << "[PathPlanner] ON COLLISION COURSE!" << endl;
 }
 
 void Planner::updatePredictions(const vector<vector<double> >& predictions) {
@@ -79,6 +85,14 @@ void Planner::updatePredictions(const vector<vector<double> >& predictions) {
 	distToCarBehind[1] = INF;
 	distToCarBehind[2] = INF;
 	distToCarBehind[3] = INF;
+	speedOfApproachFromBehind[1] = 0;
+	speedOfApproachFromBehind[2] = 0;
+	speedOfApproachFromBehind[3] = 0;
+	speedOfApproachFromFront[1] = INF;
+	speedOfApproachFromFront[2] = INF;
+	speedOfApproachFromFront[3] = INF;
+	// TODO : logic for determining in front and behind does not work for wrap around case
+	// e.g.  ego s = 0, cars behind will have s = 6800 > s = 0
 	for (auto p: predictions) {
 		int laneNum = calcCurrentLane(p[6]);
 		if (p[5] > s && p[5] < distToCarAhead[laneNum]) {
@@ -87,20 +101,30 @@ void Planner::updatePredictions(const vector<vector<double> >& predictions) {
 		if (p[5] < s && p[5] > distToCarBehind[laneNum]) {
 			distToCarBehind[laneNum] = p[5];
 		}
+		const double carV = sqrt(p[3]*p[3] + p[4]*p[4]);
+		if ( p[5] > s && carV < speedOfApproachFromFront[laneNum]) {
+			speedOfApproachFromFront[laneNum] = carV;
+		}
+		if ( p[5] < s && carV > speedOfApproachFromBehind[laneNum]) {
+			speedOfApproachFromBehind[laneNum] = carV;
+		}
 	}
 	if (distToCarAhead[1] != INF) distToCarAhead[1] -= s;
 	if (distToCarAhead[2] != INF) distToCarAhead[2] -= s;
 	if (distToCarAhead[3] != INF) distToCarAhead[3] -= s;
-	if (distToCarAhead[1] != INF) distToCarBehind[1] = s - distToCarBehind[1];
-	if (distToCarAhead[2] != INF) distToCarBehind[2] = s - distToCarBehind[2];
-	if (distToCarAhead[3] != INF) distToCarBehind[3] = s - distToCarBehind[3];
+	if (distToCarBehind[1] != INF) distToCarBehind[1] = s - distToCarBehind[1];
+	if (distToCarBehind[2] != INF) distToCarBehind[2] = s - distToCarBehind[2];
+	if (distToCarBehind[3] != INF) distToCarBehind[3] = s - distToCarBehind[3];
+	if (speedOfApproachFromBehind[1] != 0) speedOfApproachFromBehind[1] -= mph2ms(v);
+	if (speedOfApproachFromBehind[2] != 0) speedOfApproachFromBehind[2] -= mph2ms(v);
+	if (speedOfApproachFromBehind[3] != 0) speedOfApproachFromBehind[3] -= mph2ms(v);
 	if (PATH_PLANNER_DEBUG) {
-		cout << "[PathPlanner] Dist to car ahead Lane 1: " << distToCarAhead[1] << endl;
-		cout << "[PathPlanner] Dist to car ahead Lane 2: " << distToCarAhead[2] << endl;
-		cout << "[PathPlanner] Dist to car ahead Lane 3: " << distToCarAhead[3] << endl;
-		cout << "[PathPlanner] Dist to car behind Lane 1: " << distToCarAhead[1] << endl;
-		cout << "[PathPlanner] Dist to car behind Lane 2: " << distToCarAhead[2] << endl;
-		cout << "[PathPlanner] Dist to car behind Lane 3: " << distToCarAhead[3] << endl;
+		cout << "[PathPlanner] Dist to car front, back Lane 1: " << distToCarAhead[1] << ", " << distToCarBehind[1] << endl;
+		cout << "[PathPlanner] Dist to car front, back Lane 2: " << distToCarAhead[2] << ", " << distToCarBehind[2] << endl;
+		cout << "[PathPlanner] Dist to car front, back Lane 3: " << distToCarAhead[3] << ", " << distToCarBehind[3] << endl;
+		cout << "[PathPlanner] speedOfApproach front, back Lane 1: " << speedOfApproachFromFront[1] << ", " << speedOfApproachFromBehind[1] << endl;
+		cout << "[PathPlanner] speedOfApproach front, back Lane 2: " << speedOfApproachFromFront[2] << ", " << speedOfApproachFromBehind[2] << endl;
+		cout << "[PathPlanner] speedOfApproach front, back Lane 3: " << speedOfApproachFromFront[3] << ", " << speedOfApproachFromBehind[3] << endl;
 	}
 }
 
@@ -176,9 +200,6 @@ tuple<bool, vector<double>, vector<double> > Planner::generatePath(double target
 		else appendIndices = { size/5-1, 2*size/5-1, 3*size/5-1, 4*size/5-1, size-1 };
 	}
 
-	// Generate trajectories for other cars for collision detection
-	generateTrajectoriesForPredictions(timeHorizon);
-	
 	double start_x, start_y, start_s, start_d, start_yaw, start_speed, start_accel_s, start_accel_d;
 	vector<double> next_xs, next_ys, next_ss, next_ds, accelSs, accelDs;
 	for (int appendIdx : appendIndices) {
@@ -234,10 +255,20 @@ tuple<bool, vector<double>, vector<double> > Planner::generatePath(double target
 			// }
 			vector<double> d_coeffs = JMT(startDCoeffs, endDCoeffs, T);
 			// cout << "START and END for d: " << end
-			if (isFeasible(appendIdx, timeHorizon, s_coeffs, d_coeffs)) {
-				possibleSTrajectories.push_back(s_coeffs);
-				possibleDTrajectories.push_back(d_coeffs);
-				Ts.push_back(T);
+			if (targetLane != currentLane 
+				&& speedOfApproachFromBehind[targetLane] != 0 
+				&& distToCarBehind[targetLane] / speedOfApproachFromBehind[targetLane] > LANE_SWITCH_TIME) {
+				if (isFeasible(appendIdx, timeHorizon, s_coeffs, d_coeffs, targetLane)) {
+					possibleSTrajectories.push_back(s_coeffs);
+					possibleDTrajectories.push_back(d_coeffs);
+					Ts.push_back(T);
+				}
+			} else {
+				if (isFeasible(appendIdx, timeHorizon, s_coeffs, d_coeffs, targetLane)) {
+					possibleSTrajectories.push_back(s_coeffs);
+					possibleDTrajectories.push_back(d_coeffs);
+					Ts.push_back(T);
+				}
 			}
 		}
 		
@@ -291,6 +322,7 @@ tuple<bool, vector<double>, vector<double> > Planner::generatePath(double target
 			// Save sd-coordinates of end of generated trajectory
 			endOfCurrentTrajectory.clear();
 			endOfCurrentTrajectory.push_back({ next_ss[next_ss.size()-1], next_ds[next_ds.size()-1] });
+			if (PATH_PLANNER_DEBUG) cout << "[PathPlanner] End of current trajectory is: (" << next_ss[next_ss.size()-1] << ", " << next_ds[next_ds.size()-1] << ")" << endl;
 			hasPath = true;
 			hasTrajectoryBefore = true;
 			break;
@@ -337,7 +369,6 @@ pair<vector<double>, vector<double> > Planner::extendPath(double targetSpeed, in
 	int numOfXYPassed = prevXYAccelSD.size() - size;
 	if (numOfXYPassed < 0) numOfXYPassed = 0;
 
-
 	for (int i = numOfXYPassed; i < prevXYAccelSD.size(); ++i) {
 		const double accS = get<2>(prevXYAccelSD[i]);
 		const double accD = get<3>(prevXYAccelSD[i]);
@@ -352,11 +383,8 @@ pair<vector<double>, vector<double> > Planner::extendPath(double targetSpeed, in
 	const int TARGET_NUM_PTS = (int) ceil(PATH_PLANNING_HORIZON/0.02);
 	const int ptsToAdd = (int) TARGET_NUM_PTS - size;
 	assert(size == next_ss.size());
-	if (PATH_PLANNER_DEBUG) cout << "[PathPlanner] prevPathX size: " << size <<  " numOfXYPassed " << numOfXYPassed << ", ptsToAdd " << ptsToAdd << endl;
 	const double deltaS = next_ss[size-1] - next_ss[size-2];
 	const double deltaD = next_ds[size-1] - next_ds[size-2];
-
-	// cout << "[PathPlanner] deltaS " << deltaS << " , " << "deltaD " << deltaD << endl; 
 
 	if (ptsToAdd > 0) {
 		double prevS = next_ss[size-1];
@@ -448,7 +476,7 @@ vector<tuple<double, double, double> > Planner::generateEndConfigurations(int n,
 }
 
 // startIdx - idx where trajectory to be evaluated will be joined to previous generated trajectory, prevXYAccelSD
-bool Planner::isFeasible(int startIdx, double timeHorizon, const vector<double>& s_coeffs, const vector<double>& d_coeffs) {
+bool Planner::isFeasible(int startIdx, double timeHorizon, const vector<double>& s_coeffs, const vector<double>& d_coeffs, int targetLane) {
 	if (timeHorizon < 0) timeHorizon = PATH_PLANNING_HORIZON;
 	// calculate heading at start of trajectory
 	double currentHeading;
@@ -458,6 +486,12 @@ bool Planner::isFeasible(int startIdx, double timeHorizon, const vector<double>&
 		currentHeading = atan2( (nextXY[1] - startXY[1]), (nextXY[0] - startXY[0]) ); // angle in X-Y coordinates
 	} else {
 		currentHeading = yaw;
+	}
+
+	// check for safety following distance at end of trajectory
+	if (speedOfApproachFromFront[targetLane] * timeHorizon - eval(s_coeffs, timeHorizon) < CAR_S_SAFETY_DISTANCE) {
+		cout << "[PathPlanner] infeasible end s position too near car ahead " << eval(s_coeffs, timeHorizon) << endl;
+		return false;
 	}
 	
 	const double deltaT = 0.20; // Adjust this value to tradeoff speed vs accuracy
@@ -469,7 +503,7 @@ bool Planner::isFeasible(int startIdx, double timeHorizon, const vector<double>&
 		const double sd = eval(d_coeffs, i);
 		const double vd = evalV(d_coeffs, i);
 		const double ad = evalA(d_coeffs, i);
-		if (sd > 12.5 || sd < 1.5) {
+		if (sd > 11.0 || sd < 1.0) {
 			cout << "[PathPlanner] infeasible sd " << sd << endl;
 			return false;
 		}
@@ -519,8 +553,8 @@ bool Planner::isFeasible(int startIdx, double timeHorizon, const vector<double>&
 
 		// Check for collision with other cars
 		for (auto trajectory: trajectories) {
-			const int j = (int) i * (deltaT/0.02);
-			if (fabs(trajectory[j].first - ss) < CAR_S_COLLISION_DISTANCE && fabs(trajectory[j].second - sd) < CAR_D_COLLISION_DISTANCE) {
+			const int j = (int) i * (deltaT/0.02) + startIdx;
+			if (j < trajectory.size() && fabs(trajectory[j].first - ss) < CAR_S_COLLISION_DISTANCE && fabs(trajectory[j].second - sd) < CAR_D_COLLISION_DISTANCE) {
 				if (PATH_PLANNER_DEBUG) 
 					cout << "[PathPlanner] infeasible - collision at ("
 						 << ss << "," << sd  << ") coordinates" << endl;
@@ -623,6 +657,33 @@ void Planner::generateTrajectoriesForPredictions(double timeHorizon) {
 		}
 		trajectories.push_back(trajectory);
 	}
+}
+
+// run this after generating trajectories
+bool Planner::onCollisionCourse() {
+	double egoS, egoD;
+	for (auto t: trajectories) {
+		if (prevXYAccelSD.size() == 0) {
+			egoS = s;
+			egoD = d;
+			for (int i = 0; i < trajectories[i].size(); i++) {
+				if (fabs(t[i].first - egoS) < CAR_S_COLLISION_DISTANCE && fabs(t[i].second - egoD) < CAR_D_COLLISION_DISTANCE) {
+					return true;
+				}
+			}
+		} else {
+			for (int i = 0; i < prevXYAccelSD.size(); ++i) {
+				egoS = get<4>(prevXYAccelSD[i]);
+				egoD = get<5>(prevXYAccelSD[i]);
+				// cout << "(" << fabs(t[i].first - egoS) << ", " << fabs(t[i].second - egoD) << ") ";
+				if (fabs(t[i].first - egoS) < CAR_S_COLLISION_DISTANCE && fabs(t[i].second - egoD) < CAR_D_COLLISION_DISTANCE) {
+					return true;
+				}
+			}
+			// cout << endl;
+		}
+	}
+	return false;
 }
 
 // speed - scalar, ms-1

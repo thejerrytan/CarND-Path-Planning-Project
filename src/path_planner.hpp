@@ -19,11 +19,15 @@ class Planner {
 		void updatePredictions(const vector<vector<double> >& predictions);
 		bool hasReachedEndOfTrajectory();
 		bool hasTrajectory();
+		bool onCollisionCourse();
 
 		map<int, double> distToCarAhead; 
 		map<int, double> distToCarBehind;
+		map<int, double> speedOfApproachFromBehind;
+		map<int, double> speedOfApproachFromFront;
 		int numOfXYPassed;
 		double distTravelled; // distance travelled since last timestep, in m/s 
+		bool isOnCollisionCourse;
 
 	private:
 		constexpr static double PATH_PLANNING_HORIZON = 5.0; // seconds
@@ -43,8 +47,10 @@ class Planner {
 		constexpr static double CAR_D_SAFETY_DISTANCE = 0.50;
 		constexpr static double CAR_S_COLLISION_DISTANCE = 5;
 		constexpr static double CAR_D_COLLISION_DISTANCE = 0.50;
+		constexpr static double LANE_SWITCH_TIME = 5; // ms-1
 		unsigned long long prevTimestamp;
 		double x,y,s,d,yaw,v;
+		int currentLane;
 		vector<double> maps_s;
 		vector<double> maps_x;
 		vector<double> maps_y;
@@ -64,7 +70,7 @@ class Planner {
 		double evalA(const vector<double>& coeffs, double T);
 		double evalJ(const vector<double>& coeffs, double T);
 		vector<tuple<double, double, double> > generateEndConfigurations(int n, double center_s, double sigma_s, double center_d, double sigma_d, double T, double sigma_t);
-		bool isFeasible(int startIdx, double timeHorizon, const vector<double>& s_coeffs, const vector<double>& d_coeffs);
+		bool isFeasible(int startIdx, double timeHorizon, const vector<double>& s_coeffs, const vector<double>& d_coeffs, int targetLane);
 		double calculateCost(const vector<double>& s_coeffs, const vector<double>& d_coeffs, int targetLane, double timeHorizon);
 		pair<vector<double>, vector<double> > smoothenPath(
 			int startIdx,

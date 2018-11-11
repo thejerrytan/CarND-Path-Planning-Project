@@ -111,12 +111,13 @@ int main() {
             double end_path_d = j[1]["end_path_d"];
 
 
-            planner.updatePrevPaths(previous_path_x, previous_path_y);
-            planner.updateState(car_x, car_y, car_s, car_d, car_yaw, car_speed);
 
             // Sensor Fusion Data, a list of all other cars on the same side of the road.
             auto sensor_fusion = j[1]["sensor_fusion"];
+            
+            planner.updatePrevPaths(previous_path_x, previous_path_y);
             planner.updatePredictions(sensor_fusion);
+            planner.updateState(car_x, car_y, car_s, car_d, car_yaw, car_speed);
 
             vector<double> next_x_vals;
             vector<double> next_y_vals;

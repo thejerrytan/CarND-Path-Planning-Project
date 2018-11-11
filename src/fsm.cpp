@@ -129,6 +129,19 @@ FSM::STATE FSM::run(double x, double y, double s, double d, double yaw, double v
 	// else slowDown = 0;
 
 	// Override existing path, force state to keep lane and lower speed immediately
+	if (planner->isOnCollisionCourse && distToCarAhead < CAR_S_EMERGENCY_DISTANCE) {
+		isInTransit = false;
+		currentState = FSM::keepLane;
+		nextState = FSM::keepLane;
+		targetLane = currentLane;
+		const double speedDiff = laneSpeeds[currentLane] > v ? 10 : -10;
+		targetSpeed = min(FSM::SPEED_LIMIT, max(0.0, laneSpeeds[currentLane] + speedDiff));
+		if (DEBUG) cout << "[FSM] Emergency : targetSpeed " << targetSpeed << " , currentSpeed " << v << endl;
+		tuple<bool, vector<double>, vector<double> > results = planner->generatePath(targetSpeed, currentLane, 0, 2.5);
+		next_paths = make_pair(get<1>(results), get<2>(results));
+		return currentState;
+	}
+
 	// if (isEmergency) {
 	// 	// emergencyCount = 10;
 	// 	isInTransit = false;
