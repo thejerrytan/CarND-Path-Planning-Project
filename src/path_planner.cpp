@@ -5,6 +5,7 @@
 #include <map>
 #include <thread>
 #include <chrono>
+#include <numeric>
 #include <algorithm>
 #include <math.h>
 #include "Eigen-3.3/Eigen/Core"
@@ -20,7 +21,6 @@ using namespace std;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
 
-
 Planner::Planner(const vector<double>& maps_x, const vector<double>& maps_y, const vector<double>& maps_s) {
 	this->maps_x = maps_x;
 	this->maps_y = maps_y;
@@ -28,16 +28,18 @@ Planner::Planner(const vector<double>& maps_x, const vector<double>& maps_y, con
 
 	this->prevTimestamp = clock_time_ms();
 	this->hasTrajectoryBefore = false;
-	this->hasBeenTruncated = false;
+	this->numOfXYPassed = 0;
+	this->distTravelled = 0;
 }
+
 Planner::~Planner() {}
 
 // Add in prev values for subsequent calculations, can only call this after first state is given
 void Planner::init(const double x, const double y, const double s, const double d, const double yaw, const double v) {
 	updateState(x, y, s, d, yaw, v);
-	this->prevPathX = { x };
-	this->prevPathY = { y };
-	this->prevXYAccelSD = vector<tuple<double, double, double, double, double, double> > { make_tuple(x, y, 0, 0, s, d) };
+	// this->prevPathX = { x };
+	// this->prevPathY = { y };
+	// this->prevXYAccelSD = vector<tuple<double, double, double, double, double, double> > { make_tuple(x, y, 0, 0, s, d) };
 	this->hasTrajectoryBefore = false;
 }
 
@@ -46,6 +48,7 @@ void Planner::updatePrevPaths(const vector<double>& prevX, const vector<double>&
 	this->prevPathY = prevY;
 }
 
+// Must call this after updatePrevPaths
 void Planner::updateState(double x, double y, double s, double d, double yaw, double v) {
 	this->x = x;
 	this->y = y;
@@ -55,6 +58,16 @@ void Planner::updateState(double x, double y, double s, double d, double yaw, do
 	this->v = v;
 	if (hasReachedEndOfTrajectory()) {
 		endOfCurrentTrajectory.clear();
+	}
+
+	numOfXYPassed = prevXYAccelSD.size() - prevPathX.size();
+	if (prevXYAccelSD.size() > 0) {
+		const double finalX = get<0>(prevXYAccelSD[numOfXYPassed]);
+		const double finalY = get<1>(prevXYAccelSD[numOfXYPassed]);
+		const double initialX = get<0>(prevXYAccelSD[0]);
+		const double initialY = get<1>(prevXYAccelSD[1]);
+
+		distTravelled = sqrt((finalX-initialX)*(finalX-initialX) + (finalY-initialY)*(finalY-initialY));
 	}
 }
 
@@ -75,12 +88,12 @@ void Planner::updatePredictions(const vector<vector<double> >& predictions) {
 			distToCarBehind[laneNum] = p[5];
 		}
 	}
-	distToCarAhead[1] -= s;
-	distToCarAhead[2] -= s;
-	distToCarAhead[3] -= s;
-	distToCarBehind[1] = s - distToCarBehind[1];
-	distToCarBehind[2] = s - distToCarBehind[2];
-	distToCarBehind[3] = s - distToCarBehind[3];
+	if (distToCarAhead[1] != INF) distToCarAhead[1] -= s;
+	if (distToCarAhead[2] != INF) distToCarAhead[2] -= s;
+	if (distToCarAhead[3] != INF) distToCarAhead[3] -= s;
+	if (distToCarAhead[1] != INF) distToCarBehind[1] = s - distToCarBehind[1];
+	if (distToCarAhead[2] != INF) distToCarBehind[2] = s - distToCarBehind[2];
+	if (distToCarAhead[3] != INF) distToCarBehind[3] = s - distToCarBehind[3];
 	if (PATH_PLANNER_DEBUG) {
 		cout << "[PathPlanner] Dist to car ahead Lane 1: " << distToCarAhead[1] << endl;
 		cout << "[PathPlanner] Dist to car ahead Lane 2: " << distToCarAhead[2] << endl;
@@ -147,19 +160,24 @@ vector<double> Planner::JMT(vector<double> start, vector<double> end, double T) 
 }
 
 // v, targetSpeed is velocity in mph, appendIdx is idx of prevXYAccelSD to generate new trajectory from
-tuple<bool, vector<double>, vector<double> > Planner::generatePath(double targetSpeed, int targetLane, int a) {
-	assert(prevPathX.size() >= 1);
+tuple<bool, vector<double>, vector<double> > Planner::generatePath(double targetSpeed, int targetLane, int givenAppendIdx, double timeHorizon) {
+	if (timeHorizon < 0 ) timeHorizon = PATH_PLANNING_HORIZON;
 	unsigned long long currTimestamp = clock_time_ms();
 	bool hasPath = false;
 	const double elapsedTime = (currTimestamp - prevTimestamp) / 1000.0;
 	const double targetSpeedMs = mph2ms(targetSpeed);
 	const double v_ms = mph2ms(v);
 	const int size = prevXYAccelSD.size();
-	const int numOfXYPassed = size - prevPathX.size();
-	const vector<int> appendIndices = { size/5-1, 2*size/5-1, 3*size/5-1, 4*size/5-1, size-1 };
+	vector<int> appendIndices;
+	if (givenAppendIdx != -1) {
+		appendIndices = { numOfXYPassed + givenAppendIdx };
+	} else {
+		if (size == 0) appendIndices = { 0 };
+		else appendIndices = { size/5-1, 2*size/5-1, 3*size/5-1, 4*size/5-1, size-1 };
+	}
 
 	// Generate trajectories for other cars for collision detection
-	generateTrajectoriesForPredictions(0);
+	generateTrajectoriesForPredictions(timeHorizon);
 	
 	double start_x, start_y, start_s, start_d, start_yaw, start_speed, start_accel_s, start_accel_d;
 	vector<double> next_xs, next_ys, next_ss, next_ds, accelSs, accelDs;
@@ -167,35 +185,28 @@ tuple<bool, vector<double>, vector<double> > Planner::generatePath(double target
 		if (numOfXYPassed > appendIdx) continue;
 		if (PATH_PLANNER_DEBUG) cout << "[PathPlanner] appendIdx : " << appendIdx << endl;
 		// Specify initial conditions
-		if (numOfXYPassed > 0) {
-			start_accel_s = get<2>(prevXYAccelSD[appendIdx]);
-			start_accel_d = get<3>(prevXYAccelSD[appendIdx]);
-		} else {
-			start_accel_s = 0.0;
-			start_accel_d = 0.0;
-		}
-		start_x = get<0>(prevXYAccelSD[appendIdx]);
-		start_y = get<1>(prevXYAccelSD[appendIdx]);
-		start_s = get<4>(prevXYAccelSD[appendIdx]);
-		start_d = get<5>(prevXYAccelSD[appendIdx]);
-		start_yaw = getYawAtPath(appendIdx);
-		start_speed = getSpeedAtPath(appendIdx);
+		start_accel_s = (size == 0) ? 0.0 : get<2>(prevXYAccelSD[appendIdx]);
+		start_accel_d = (size == 0) ? 0.0 : get<3>(prevXYAccelSD[appendIdx]);
+		start_x = (size == 0) ? x : get<0>(prevXYAccelSD[appendIdx]);
+		start_y = (size == 0) ? y : get<1>(prevXYAccelSD[appendIdx]);
+		start_s = (size == 0) ? s : get<4>(prevXYAccelSD[appendIdx]);
+		start_d = (size == 0) ? d : get<5>(prevXYAccelSD[appendIdx]);
+		start_yaw = (size == 0) ? yaw : getYawAtPath(appendIdx);
+		start_speed = (size == 0) ? v_ms : getSpeedAtPath(appendIdx);
 		
 		// work in frenet coordinates
 		const vector<double> start_speed_sd = getFrenetSpeed(start_x, start_y, start_yaw, start_speed*cos(start_yaw), start_speed*sin(start_yaw), maps_x, maps_y);
 
-		// s = ut + 1/2 * a * t^2, assuming linear kinematics, we apply a correction factor, if not no solution exists
-		const double ave_accel = min(8.0, (targetSpeedMs - start_speed) / PATH_PLANNING_HORIZON);
-		const double displacement = (start_speed_sd[0] * PATH_PLANNING_HORIZON +
-				 												0.5 * ave_accel * PATH_PLANNING_HORIZON * PATH_PLANNING_HORIZON) 
-																* NONLINEARITY_CORRECTION_FACTOR;
+		// s = ut + 1/2 * a * t^2, approx. assuming constant acceleration
+		const double ave_accel = min(9.0, (targetSpeedMs - start_speed) / timeHorizon);
+		const double displacement = start_speed_sd[0] * timeHorizon + 0.5 * ave_accel * timeHorizon * timeHorizon;
 
 		cout << "[PathPlanner] " << s << ", start_s : " << start_s << " , end_s " << start_s + displacement << " , start_speed "  << start_speed << endl;
 		// Generate a bunch of possible end configurations
 		vector<vector<double> > possibleSTrajectories;
 		vector<vector<double> > possibleDTrajectories;
 		vector<double> Ts;
-		const vector<tuple<double, double, double> > endConfig = generateEndConfigurations(SAMPLE_SIZE, start_s + displacement, LANE_CENTER[targetLane], PATH_PLANNING_HORIZON);
+		const vector<tuple<double, double, double> > endConfig = generateEndConfigurations(SAMPLE_SIZE, start_s + displacement, displacement/10, LANE_CENTER[targetLane], -1, timeHorizon, timeHorizon/5);
 		
 		if (PATH_PLANNER_DEBUG) cout << "[PathPlanner] Time elapsed: " 
 			<< (currTimestamp - this->prevTimestamp) << " ms, start_accel_s " 
@@ -210,7 +221,7 @@ tuple<bool, vector<double>, vector<double> > Planner::generatePath(double target
 			const double T = get<2>(p);
 			// cout << "Start S: " << start_s << ", " << startSDot << endl;
 			// cout << "End S: " << endS << endl;
-			// cout << "T is " << T << ", displacement " << displacement << ", " << endD << endl;
+			// cout << "T is " << T << ", displacement " << displacement << endl;
 			const vector<double> startSCoeffs = { start_s, startSDot, start_accel_s };
 			const vector<double> endSCoeffs = { endS, targetSpeedMs, 0 };
 			const vector<double> startDCoeffs = { start_d, startDDot, start_accel_d };
@@ -223,7 +234,7 @@ tuple<bool, vector<double>, vector<double> > Planner::generatePath(double target
 			// }
 			vector<double> d_coeffs = JMT(startDCoeffs, endDCoeffs, T);
 			// cout << "START and END for d: " << end
-			if (isFeasible(appendIdx, s_coeffs, d_coeffs)) {
+			if (isFeasible(appendIdx, timeHorizon, s_coeffs, d_coeffs)) {
 				possibleSTrajectories.push_back(s_coeffs);
 				possibleDTrajectories.push_back(d_coeffs);
 				Ts.push_back(T);
@@ -237,7 +248,7 @@ tuple<bool, vector<double>, vector<double> > Planner::generatePath(double target
 		double T;
 		double minCost = 10e10;
 		for (int i = 0; i < possibleSTrajectories.size(); ++i) {
-			const double cost = calculateCost(possibleSTrajectories[i], possibleDTrajectories[i], targetLane, 0);
+			const double cost = calculateCost(possibleSTrajectories[i], possibleDTrajectories[i], targetLane, timeHorizon);
 			if (cost < minCost) {
 				minCost = cost;
 				s_coeffs = possibleSTrajectories[i];
@@ -246,7 +257,7 @@ tuple<bool, vector<double>, vector<double> > Planner::generatePath(double target
 			}
 		}
 		
-		if (PATH_PLANNER_DEBUG) cout << "[PathPlanner] Min cost " << minCost << endl;
+		if (PATH_PLANNER_DEBUG) cout << endl << "[PathPlanner] Min cost " << minCost << endl;
 		
 		// Generate chosen trajectory
 		if (s_coeffs.size() > 0) {
@@ -282,7 +293,6 @@ tuple<bool, vector<double>, vector<double> > Planner::generatePath(double target
 			endOfCurrentTrajectory.push_back({ next_ss[next_ss.size()-1], next_ds[next_ds.size()-1] });
 			hasPath = true;
 			hasTrajectoryBefore = true;
-			hasBeenTruncated = false;
 			break;
 		}
 	}
@@ -302,11 +312,10 @@ tuple<bool, vector<double>, vector<double> > Planner::generatePath(double target
 		if (PATH_PLANNER_DEBUG) cout << "[PathPlanner] No trajectory found. Use previous trajectory" << endl;
 		next_xs = prevPathX;
 		next_ys = prevPathY;
-		for (int i = numOfXYPassed; i < prevXYAccelSD.size(); ++i) {
-			accelSs.push_back(get<2>(prevXYAccelSD[i]));
-			accelDs.push_back(get<3>(prevXYAccelSD[i]));
-			next_ss.push_back(get<4>(prevXYAccelSD[i]));
-			next_ds.push_back(get<5>(prevXYAccelSD[i]));	
+		if (size > 0) {
+			this->prevXYAccelSD = vector<tuple<double, double, double, double, double, double> >(prevXYAccelSD.begin()+numOfXYPassed, prevXYAccelSD.end());
+		} else {
+			this->prevXYAccelSD.clear();
 		}
 		return make_tuple(hasPath, next_xs, next_ys);
 	}
@@ -342,7 +351,6 @@ pair<vector<double>, vector<double> > Planner::extendPath(double targetSpeed, in
 	
 	const int TARGET_NUM_PTS = (int) ceil(PATH_PLANNING_HORIZON/0.02);
 	const int ptsToAdd = (int) TARGET_NUM_PTS - size;
-	int ptsAdded = 0;
 	assert(size == next_ss.size());
 	if (PATH_PLANNER_DEBUG) cout << "[PathPlanner] prevPathX size: " << size <<  " numOfXYPassed " << numOfXYPassed << ", ptsToAdd " << ptsToAdd << endl;
 	const double deltaS = next_ss[size-1] - next_ss[size-2];
@@ -364,14 +372,7 @@ pair<vector<double>, vector<double> > Planner::extendPath(double targetSpeed, in
 			accelD.push_back(0);
 			next_ss.push_back(prevS);
 			next_ds.push_back(prevD);
-			ptsAdded++;
-			if ( s + distToCarAhead[targetLane] - prevS < CAR_S_COLLISION_DISTANCE) { 
-				hasBeenTruncated = true;
-				cout << "[PathPlanner] truncated!" << endl;
-				break; 
-			} else {
-				hasBeenTruncated = false;
-			}
+			if ( s + distToCarAhead[targetLane] - prevS < CAR_S_COLLISION_DISTANCE) break;
 		}
 		return smoothenPath(0, next_xs, next_ys, next_ss, next_ds, accelS, accelD);
 	} else {
@@ -431,35 +432,14 @@ pair<vector<double>, vector<double> > Planner::smoothenPath(
 	}
 }
 
-// evaluate displacement at time t
-double Planner::eval(const vector<double>& coeffs, double T) {
-	return coeffs[0] + coeffs[1] * T + coeffs[2] * T * T + 
-				 coeffs[3] * pow(T, 3) + coeffs[4] * pow(T, 4) + 
-				 coeffs[5] * pow(T, 5);
-}
-
-// evaluate velocity at time t
-double Planner::evalV(const vector<double>& coeffs, double T) {
-	return coeffs[1] + 2 * coeffs[2] * T + 3 * coeffs[3] * pow(T,  2) +
-				 4 * coeffs[4] * pow(T, 3) + 5 * coeffs[5] * pow(T, 4);
-}
-
-// evaluate acceleration at time t
-double Planner:: evalA(const vector<double>& coeffs, double T) {
-	return 2 * coeffs[2] + 6 * coeffs[3] * T + 12 * coeffs[4] * pow(T, 2) +
-				 20 * coeffs[5] * pow(T, 3);
-}
-
-// evaluate jerk at time t
-double Planner::evalJ(const vector<double>& coeffs, double T) {
-	return 6 * coeffs[3] + 24 * coeffs[4] * T + 60 * coeffs[5] * pow(T, 2);
-}
-
-vector<tuple<double, double, double> > Planner::generateEndConfigurations(int n, double center_s, double center_d, double T) {
+vector<tuple<double, double, double> > Planner::generateEndConfigurations(int n, double center_s, double sigma_s, double center_d, double sigma_d, double T, double sigma_t) {
+	if (sigma_s < 0) sigma_s = SIGMA_S;
+	if (sigma_d < 0) sigma_d = SIGMA_D;
+	if (sigma_t < 0) sigma_t = SIGMA_T;
 	default_random_engine gen;
-	std::normal_distribution<double> dist_s(center_s, SIGMA_S);
-	std::normal_distribution<double> dist_d(center_d, SIGMA_D);
-	std::normal_distribution<double> dist_t(T, SIGMA_T);
+	std::normal_distribution<double> dist_s(center_s, sigma_s);
+	std::normal_distribution<double> dist_d(center_d, sigma_d);
+	std::normal_distribution<double> dist_t(T, sigma_t);
 	vector<tuple<double, double, double> > results;
 	for (int i = 0; i < n; ++i) {
 		results.push_back(make_tuple(dist_s(gen), dist_d(gen), dist_t(gen)));
@@ -468,15 +448,21 @@ vector<tuple<double, double, double> > Planner::generateEndConfigurations(int n,
 }
 
 // startIdx - idx where trajectory to be evaluated will be joined to previous generated trajectory, prevXYAccelSD
-bool Planner::isFeasible(int startIdx, const vector<double>& s_coeffs, const vector<double>& d_coeffs) {
+bool Planner::isFeasible(int startIdx, double timeHorizon, const vector<double>& s_coeffs, const vector<double>& d_coeffs) {
+	if (timeHorizon < 0) timeHorizon = PATH_PLANNING_HORIZON;
 	// calculate heading at start of trajectory
-	const vector<double> startXY = getXY(get<4>(prevXYAccelSD[startIdx-1]), get<5>(prevXYAccelSD[startIdx-1]), maps_s, maps_x, maps_y);
-	const vector<double> nextXY = getXY(get<4>(prevXYAccelSD[startIdx]), get<5>(prevXYAccelSD[startIdx]), maps_s, maps_x, maps_y); 
-	double currentHeading = atan2( (nextXY[1] - startXY[1]), (nextXY[0] - startXY[0]) ); // angle in X-Y coordinates
+	double currentHeading;
+	if (prevXYAccelSD.size() != 0) {
+		const vector<double> startXY = getXY(get<4>(prevXYAccelSD[startIdx-1]), get<5>(prevXYAccelSD[startIdx-1]), maps_s, maps_x, maps_y);
+		const vector<double> nextXY = getXY(get<4>(prevXYAccelSD[startIdx]), get<5>(prevXYAccelSD[startIdx]), maps_s, maps_x, maps_y); 
+		currentHeading = atan2( (nextXY[1] - startXY[1]), (nextXY[0] - startXY[0]) ); // angle in X-Y coordinates
+	} else {
+		currentHeading = yaw;
+	}
 	
 	const double deltaT = 0.20; // Adjust this value to tradeoff speed vs accuracy
-	const int NUM_PTS = (int) floor(PATH_PLANNING_HORIZON / deltaT);
-	for (double i = 0; i < PATH_PLANNING_HORIZON; i+=deltaT) {
+	const int NUM_PTS = (int) floor(timeHorizon / deltaT);
+	for (double i = 0; i <= timeHorizon; i+=deltaT) {
 		const double ss = eval(s_coeffs, i);
 		const double vs = evalV(s_coeffs, i);
 		const double as = evalA(s_coeffs, i);
@@ -484,15 +470,15 @@ bool Planner::isFeasible(int startIdx, const vector<double>& s_coeffs, const vec
 		const double vd = evalV(d_coeffs, i);
 		const double ad = evalA(d_coeffs, i);
 		if (sd > 12.5 || sd < 1.5) {
-			// cout << "[PathPlanner] infeasible sd " << sd << endl;
+			cout << "[PathPlanner] infeasible sd " << sd << endl;
 			return false;
 		}
 		if (fabs(sqrt(vs*vs + vd*vd)) > MAX_VEL) {
-			// cout << "[PathPlanner] infeasible velocity " << fabs(sqrt(vs*vs + vd*vd)) << endl;
+			cout << "[PathPlanner] infeasible velocity " << fabs(sqrt(vs*vs + vd*vd)) << endl;
 			return false;
 		}
 		if (vs < 0) {
-			// cout << "[PathPlanner] infeasible vs < 0 " << vs << endl;
+			cout << "[PathPlanner] infeasible vs < 0 " << vs << endl;
 			return false;
 		}
 		if (fabs(as) > MAX_ACCEL || (as < 0 && fabs(as) > MAX_S_DECEL)) {
@@ -500,14 +486,14 @@ bool Planner::isFeasible(int startIdx, const vector<double>& s_coeffs, const vec
 			return false;
 		}
 		if (fabs(ad) > MAX_ACCEL) {
-			// cout << "[PathPlanner] infeasible accN - ad " << ad << endl;
+			cout << "[PathPlanner] infeasible accN - ad " << ad << endl;
 			return false;
 		}
 		if (ad < 0 && fabs(ad) > MAX_D_DECEL) {
-			// cout << "[PathPlanner] infeasible accN deceleration - ad " << ad << endl;
+			cout << "[PathPlanner] infeasible accN deceleration - ad " << ad << endl;
 		}
 		if (fabs(sqrt(as*as + ad*ad)) > MAX_ACCEL) {
-			// cout << "[PathPlanner] infeasible accTotal - " << fabs(sqrt(as*as + ad*ad)) << endl;
+			cout << "[PathPlanner] infeasible accTotal - " << fabs(sqrt(as*as + ad*ad)) << endl;
 			return false;
 		}
 
@@ -544,7 +530,7 @@ bool Planner::isFeasible(int startIdx, const vector<double>& s_coeffs, const vec
 	}
 
 	// final heading should be parallel to the lane
-	const double finalS = eval(s_coeffs, PATH_PLANNING_HORIZON);
+	const double finalS = eval(s_coeffs, timeHorizon);
 	const double finalHeading = angleXYtoFrenet(currentHeading, getLaneCurvature(finalS, maps_s, maps_x, maps_y));
 	// cout << "[PathPlanner] final heading " << finalHeading << endl;
 	if (finalHeading > 1e-1) {
@@ -557,35 +543,70 @@ bool Planner::isFeasible(int startIdx, const vector<double>& s_coeffs, const vec
 	return true;
 }
 
-double Planner::calculateCost(const vector<double>& s_coeffs, const vector<double>& d_coeffs, int targetLane, double translateT) {
-	// Here we assume T = 5 is the end of the trajectory
+double Planner::calculateCost(const vector<double>& s_coeffs, const vector<double>& d_coeffs, int targetLane, double timeHorizon) {
+	if (timeHorizon < 0) timeHorizon = PATH_PLANNING_HORIZON;
 	double cost = 0;
-	const double startS = eval(s_coeffs, translateT + 0);
-	const double startD = eval(d_coeffs, translateT + 0);
-	const double endS = eval(s_coeffs, translateT + PATH_PLANNING_HORIZON);
-	const double endD = eval(d_coeffs, translateT + PATH_PLANNING_HORIZON);
-
+	const double deltaT = 0.20;
+	const double startS = eval(s_coeffs, 0);
+	const double startD = eval(d_coeffs, 0);
+	const double endS = eval(s_coeffs, timeHorizon);
+	const double endD = eval(d_coeffs, timeHorizon);
+	vector<double> acc;
+	const int N = (int) ceil(timeHorizon / deltaT);
 	// closeness to center of the lane
 	cost += fabs(LANE_CENTER[targetLane] - endD);
 
 	// safety distance to car in front
-	cost += max(0.0, (CAR_S_SAFETY_DISTANCE - distToCarAhead[targetLane]) / CAR_S_SAFETY_DISTANCE);
+	acc.clear();
+	for (double i = 0; i <= timeHorizon; i+=deltaT) {
+		const double s = eval(s_coeffs, i);
+		const double d = eval(d_coeffs, i);
+		const double carS = s + distToCarAhead[targetLane];
+		const double carD = LANE_CENTER[targetLane];
+		acc.push_back(distance(s, d, carS, carD));
+	}
+	cost += fmin(1.0, CAR_S_SAFETY_DISTANCE / normalizeValues(acc));
 
 	// safety distance to car behind
-	cost += max(0.0, (CAR_S_SAFETY_DISTANCE - distToCarBehind[targetLane]) / CAR_S_SAFETY_DISTANCE);
+	acc.clear();
+	for (double i = 0; i <= timeHorizon; i+=deltaT) {
+		const double s = eval(s_coeffs, i);
+		const double d = eval(d_coeffs, i);
+		const double carS = s - distToCarBehind[targetLane];
+		const double carD = LANE_CENTER[targetLane];
+		acc.push_back(distance(s, d, carS, carD));
+	}
+	cost += fmin(1.0, CAR_S_SAFETY_DISTANCE / normalizeValues(acc));
+
+	// Time spent in between lanes
+	acc.clear();
+	for (double i = 0; i <= timeHorizon; i+=deltaT) {
+		const double d = eval(d_coeffs, i);
+		int lane = calcCurrentLane(d);
+		acc.push_back(fabs(d - LANE_CENTER[lane]));
+	}
+	cost += normalizeValues(acc);
+
+	// No wild swings in velocity
+	acc.clear();
+	for (double i = 0; i <= timeHorizon; i+=deltaT) {
+		acc.push_back(evalV(s_coeffs, i));
+	}
+	cost += normalizedVariance(acc);
 
 	// comfort - we only count lateral jerk
-	double total_lateral_jerk = 0;
-	for (int i = translateT + 0; i <= translateT + PATH_PLANNING_HORIZON; ++i) {
+	acc.clear();
+	for (double i = 0; i <= timeHorizon; i+=deltaT) {
 		const double jd = evalJ(d_coeffs, i);
-		total_lateral_jerk += jd;
+		acc.push_back(jd);
 	}
-	cost += total_lateral_jerk / (translateT + PATH_PLANNING_HORIZON);
+	cost += normalizeValues(acc);
 	if (PATH_PLANNER_DEBUG) cout << "cost " << cost << ", ";
 	return cost;
 }
 
-void Planner::generateTrajectoriesForPredictions(const double T) {
+void Planner::generateTrajectoriesForPredictions(double timeHorizon) {
+	if (timeHorizon < 0) timeHorizon = PATH_PLANNING_HORIZON; 
 	trajectories.clear();
 	const double deltaT = 0.02;
 	for (auto p: predictions) {
@@ -593,7 +614,7 @@ void Planner::generateTrajectoriesForPredictions(const double T) {
 		const double thetaXY = angleFrenetToXY(p[1], p[2], 0, yaw, maps_x, maps_y);
 		const vector<double> frenetSpeed = getFrenetSpeed(p[1], p[2], thetaXY, p[3], p[4], maps_x, maps_y);
 		vector<pair<double, double> > trajectory;
-		for (int i = 0; i < PATH_PLANNING_HORIZON; ++i) {
+		for (double i = 0; i < timeHorizon; i+=deltaT) {
 			const double s = p[5] + i * frenetSpeed[0];
 			const double d = p[6] + i * frenetSpeed[1];
 			trajectory.push_back(make_pair(s, d));
@@ -623,4 +644,66 @@ double Planner::getYawAtPath(int idx) {
 	} else {
 		return yaw;
 	}
+}
+
+// normalize all values between 0 and 1 and returns its average
+double Planner::normalizeValues(vector<double>& values) {
+	assert(values.size() > 0);
+	const double minV = *min_element(values.begin(), values.end());
+	const double maxV = *max_element(values.begin(), values.end());
+	double sum = 0.0;
+	if (fabs(minV - maxV) > 1e-3) {
+		for (int i = 0; i < values.size(); ++i) {
+			values[i] = (values[i] - minV) / (maxV - minV);
+		}
+		sum = accumulate(values.begin(), values.end(), 0.0);
+	} else {
+		sum = accumulate(values.begin(), values.end(), 0.0);
+	}
+	return sum / values.size();
+}
+
+double Planner::normalizedVariance(vector<double>& values) {
+	assert(values.size() > 0);
+	const double minV = *min_element(values.begin(), values.end());
+	const double maxV = *max_element(values.begin(), values.end());
+	double sum = 0.0;
+	if (fabs(minV - maxV) > 1e-3) {
+		for (int i = 0; i < values.size(); ++i) {
+			values[i] = (values[i] - minV) / (maxV - minV);
+		}
+		sum = accumulate(values.begin(), values.end(), 0.0);
+	} else {
+		sum = accumulate(values.begin(), values.end(), 0.0);
+	}
+	double mean = sum / values.size();
+	double varV = 0.0;
+	for (int i = 0; i < values.size(); ++i) {
+		varV += fabs(values[i] - mean);
+	}
+	return varV / values.size();
+}
+
+// evaluate displacement at time t
+double Planner::eval(const vector<double>& coeffs, double T) {
+	return coeffs[0] + coeffs[1] * T + coeffs[2] * T * T + 
+				 coeffs[3] * pow(T, 3) + coeffs[4] * pow(T, 4) + 
+				 coeffs[5] * pow(T, 5);
+}
+
+// evaluate velocity at time t
+double Planner::evalV(const vector<double>& coeffs, double T) {
+	return coeffs[1] + 2 * coeffs[2] * T + 3 * coeffs[3] * pow(T,  2) +
+				 4 * coeffs[4] * pow(T, 3) + 5 * coeffs[5] * pow(T, 4);
+}
+
+// evaluate acceleration at time t
+double Planner:: evalA(const vector<double>& coeffs, double T) {
+	return 2 * coeffs[2] + 6 * coeffs[3] * T + 12 * coeffs[4] * pow(T, 2) +
+				 20 * coeffs[5] * pow(T, 3);
+}
+
+// evaluate jerk at time t
+double Planner::evalJ(const vector<double>& coeffs, double T) {
+	return 6 * coeffs[3] + 24 * coeffs[4] * T + 60 * coeffs[5] * pow(T, 2);
 }

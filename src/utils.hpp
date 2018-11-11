@@ -224,7 +224,7 @@ inline vector<double> getLaneCurvature(double s, const vector<double>& maps_s, c
 }
 
 inline double angleXYtoFrenet(double angle, const vector<double>& s_vector) {
-	const double dx = (angle < pi()/2 || angle < -pi()/2) ? -1 : 1;
+	const double dx = ((angle < pi() && angle > pi()/2) || (angle > -pi() && angle < -pi()/2)) ? -1 : 1;
 	const double norm_x = sqrt(dx + tan(angle)*tan(angle));
 	const double norm_s = sqrt(s_vector[0]*s_vector[0] + s_vector[1]*s_vector[1]);
 	const double heading_projection = (s_vector[0]*1 + s_vector[1]*tan(angle)) / (norm_x * norm_s);

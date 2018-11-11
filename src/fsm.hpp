@@ -24,9 +24,9 @@ public:
 private:
 	// cars within s_buffer in s coordinates behind us should be considered in lane speed calc
 	constexpr static double S_BUFFER = 10;
-	constexpr static double CAR_S_SAFETY_DISTANCE = 30;
+	constexpr static double CAR_S_SAFETY_DISTANCE = 40;
+	constexpr static double CAR_S_EMERGENCY_DISTANCE = 30;
 	constexpr static int GOAL_HORIZON = 10;
-	constexpr static double SPEED_INCREMENT = 0.5; // mph
 	static double SPEED_LIMIT; //mph
 	static map<STATE, vector<STATE> > NEXT_STATE;
 	map<int, double> laneSpeeds;
@@ -41,13 +41,15 @@ private:
 	bool isInTransit;
 	double slowDown;
 	Planner *planner;
+	double pidPrevErr, pidCumErr, pidP, pidD, pidI;
+	int emergencyCount = 0;
 
 	void updateLocalization(double x, double y, double s, double d, double yaw, double v);
 	void updatePredictions(const vector<vector<double> >& predictions);
 	void updateLaneSpeeds();
 	void updateGoal();
 	void updateCurrentLane();
-	tuple<double, int> generateTrajectory(FSM::STATE end);
+	tuple<double, int> generateEndConfiguration(FSM::STATE end);
 	double goalDistanceCost(double targetSpeed, int targetLane);
 	double inefficiencyCost(double targetSpeed, int targetLane);
 	double safetyCost(double targetSpeed, int targetLane);

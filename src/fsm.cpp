@@ -17,6 +17,7 @@ map<FSM::STATE, vector<FSM::STATE> > FSM::NEXT_STATE {
 		{ FSM::notReady, vector<FSM::STATE> { FSM::notReady, FSM::ready }},
 		{ FSM::ready, vector<FSM::STATE> { FSM::ready, FSM::keepLane }},
 		{ FSM::keepLane, vector<FSM::STATE> { FSM::keepLane, FSM::laneChangeLeft, FSM::laneChangeRight, FSM::final }},
+		// { FSM::keepLane, vector<FSM::STATE> { FSM::keepLane, FSM::final }},
 		{ FSM::laneChangeLeft, vector<FSM::STATE> { FSM::keepLane }},
 		{ FSM::laneChangeRight, vector<FSM::STATE> { FSM::keepLane }},
 		{ FSM::final, vector<FSM::STATE> { FSM::final }}
@@ -35,6 +36,13 @@ FSM::FSM(const vector<double>& mapX, const vector<double>& mapY) {
 	this->targetLane = INF;
 	this->currentState = FSM::notReady;
 	this->isInTransit = false;
+
+	// PID terms
+	this->pidPrevErr = -160;
+	this->pidCumErr = 0;
+	this->pidP = 0.4;
+	this->pidI = 0;
+	this->pidD = 0.0;
 }
 
 FSM::~FSM() {}
@@ -92,18 +100,50 @@ FSM::STATE FSM::run(double x, double y, double s, double d, double yaw, double v
 	updateCurrentLane();
 	updatePredictions(newPredictions);
 	updateLaneSpeeds();
-
-	// Modify speed factor based on feedback from PathPlanner
-	const double distToCarAhead = planner->distToCarAhead[currentLane];
-	cout << "[FSM] dist to car ahead is : " << distToCarAhead << endl;
-	if (distToCarAhead < CAR_S_SAFETY_DISTANCE) slowDown = min(5.0, (double) CAR_S_SAFETY_DISTANCE - distToCarAhead);
-	else slowDown = 0;
-
 	for (auto p: laneSpeeds) {
 		if (p.first == 1 || p.first == 2 || p.first == 3) {
 			if (DEBUG) cout << "[FSM] lane " << p.first << " -> " << p.second << endl;
 		}
 	}
+
+	// pid controller to track distance to car ahead
+	double pidErr;
+	double distToCarAhead = planner->distToCarAhead[currentLane];
+	cout << "[FSM] dist to car ahead is : " << distToCarAhead << endl;
+	slowDown = 0;
+	if (distToCarAhead != INF && CAR_S_SAFETY_DISTANCE > distToCarAhead) {
+		pidErr = CAR_S_SAFETY_DISTANCE - distToCarAhead;
+		slowDown = pidP * pidErr + pidI * pidCumErr + pidD * (pidErr - pidPrevErr);
+		pidPrevErr = pidErr;
+		pidCumErr += pidErr;
+	} else if (distToCarAhead != INF && CAR_S_SAFETY_DISTANCE < distToCarAhead) {
+		pidErr = CAR_S_SAFETY_DISTANCE - distToCarAhead;
+		slowDown = pidP * pidErr + pidI * pidCumErr + pidD * (pidErr - pidPrevErr);
+		pidPrevErr = pidErr;
+		pidCumErr += pidErr;
+	}
+	bool isEmergency = (distToCarAhead < CAR_S_EMERGENCY_DISTANCE);
+
+	cout << "[FSM] slowDown is " << slowDown << endl;
+	// if (distToCarAhead < CAR_S_SAFETY_DISTANCE) slowDown = min(5.0, (double) CAR_S_SAFETY_DISTANCE - distToCarAhead);
+	// else slowDown = 0;
+
+	// Override existing path, force state to keep lane and lower speed immediately
+	// if (isEmergency) {
+	// 	// emergencyCount = 10;
+	// 	isInTransit = false;
+	// 	currentState = FSM::keepLane;
+	// 	nextState = FSM::keepLane;
+	// 	targetLane = currentLane;
+	// 	targetSpeed = max(0.0, laneSpeeds[currentLane] - 5);
+	// 	if (DEBUG) cout << "[FSM] Emergency : targetSpeed " << targetSpeed << " , currentSpeed " << v << endl;
+	// 	tuple<bool, vector<double>, vector<double> > results = planner->generatePath(targetSpeed, currentLane, 0, 2.5);
+	// 	next_paths = make_pair(get<1>(results), get<2>(results));
+
+	// 	return currentState;
+	// } else {
+	// 	emergencyCount--;
+	// }
 
 	// check whether path planner has finished executing any pending trajectory to transit to the next state
 	if (!planner->hasTrajectory() && planner->hasReachedEndOfTrajectory()) {
@@ -128,9 +168,9 @@ FSM::STATE FSM::run(double x, double y, double s, double d, double yaw, double v
 	double minCost = 10E10;
 	if (DEBUG) cout << "[FSM] Calculating costs: " << endl;
 	for (auto state: nextStates) {
-		const tuple<double, int> trajectory = generateTrajectory(state);
-		const double targetSpeed = get<0>(trajectory);
-		const double targetLane = get<1>(trajectory);
+		const tuple<double, int> config = generateEndConfiguration(state);
+		const double targetSpeed = get<0>(config);
+		const double targetLane = get<1>(config);
 		const double goalCost = weight_list[0] * goalDistanceCost(targetSpeed, targetLane);
 		const double speedCost = weight_list[1] * inefficiencyCost(targetSpeed, targetLane);
 		const double safety = weight_list[2] * safetyCost(targetSpeed, targetLane);
@@ -149,7 +189,8 @@ FSM::STATE FSM::run(double x, double y, double s, double d, double yaw, double v
 	// Next state
 	targetLane = chosenTargetLane;
 	// slowDown to give pathPlanner more feasible search spaces
-	targetSpeed = min(FSM::SPEED_LIMIT, chosenTargetSpeed - slowDown); 
+	// targetSpeed = min(FSM::SPEED_LIMIT, chosenTargetSpeed + slowDown); 
+	targetSpeed = max(0.0, min(FSM::SPEED_LIMIT, chosenTargetSpeed - slowDown));
 	nextState = chosenState;
 
 	if (DEBUG) cout << "[FSM] Current state: " 
@@ -161,7 +202,7 @@ FSM::STATE FSM::run(double x, double y, double s, double d, double yaw, double v
 	if (currentState == FSM::keepLane && nextState == FSM::keepLane && ((targetSpeed - v) > 5 || (v - targetSpeed) > 1)) {
 		if ((targetSpeed - v) > 5 && DEBUG) cout << "[FSM] Keep lane but speed up" << endl; 
 		if ((v - targetSpeed) > 1 && DEBUG) cout << "[FSM] Keep lane but slow down" << endl;
-		tuple<bool, vector<double>, vector<double> > result = planner->generatePath(targetSpeed, targetLane, true); // extend path but change final speed
+		tuple<bool, vector<double>, vector<double> > result = planner->generatePath(targetSpeed, targetLane, 0, -1); // extend path but change final speed
 		if (planner->hasTrajectory()) {
 			next_paths = make_pair(get<1>(result), get<2>(result));
 			isInTransit = true;
@@ -170,7 +211,7 @@ FSM::STATE FSM::run(double x, double y, double s, double d, double yaw, double v
 			next_paths = planner->extendPath(targetSpeed, currentLane);
 		}
 	} else if (currentState != chosenState) {
-		tuple<bool, vector<double>, vector<double> > result = planner->generatePath(targetSpeed, targetLane, true);
+		tuple<bool, vector<double>, vector<double> > result = planner->generatePath(targetSpeed, targetLane, -1, -1);
 		if (planner->hasTrajectory()) {
 			next_paths = make_pair(get<1>(result), get<2>(result));
 			isInTransit = true;
@@ -249,7 +290,7 @@ void FSM::updateLaneSpeeds() {
 }
 
 // returns a <targetSpeed, targetLane> for each currentState -> nextState transition
-tuple<double, int> FSM::generateTrajectory(FSM::STATE end) {
+tuple<double, int> FSM::generateEndConfiguration(FSM::STATE end) {
 	tuple<double, int> t;
 	int targetLane;
 	switch (end) {
