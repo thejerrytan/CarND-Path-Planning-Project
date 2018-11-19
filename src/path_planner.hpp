@@ -3,6 +3,9 @@
 
 #include <vector>
 
+typedef std::pair<std::vector<double>, std::vector<double> > pairOfList;
+typedef std::vector<std::pair<double, double> > listOfPair;
+
 using namespace std;
 
 class Planner {
@@ -10,9 +13,9 @@ class Planner {
 		Planner(const vector<double>& maps_x, const vector<double>& maps_y, const vector<double>& maps_s);
 		virtual ~Planner();
 		// generate a trajectory by choosing lowest cost among many possible end configuration states
-		tuple<bool, vector<double>, vector<double> > generatePath(double targetSpeed, int targetLane, int appendIdx, double timeHorizon);
+		pairOfList generatePath(double targetSpeed, int targetLane, int appendIdx, double timeHorizon);
 		// extends an existing feasible trajectory without changing the final configuration, except for s-coordinate
-		pair<vector<double>, vector<double> > extendPath(double targetSpeed, int targetLane);
+		pairOfList extendPath(double targetSpeed, int targetLane);
 		void init(const double x, const double y, const double s, const double d, const double yaw, const double v);
 		void updatePrevPaths(const vector<double>& prevX, const vector<double>& prevY);
 		void updateState(double x, double y, double s, double d, double yaw, double v);
@@ -25,9 +28,11 @@ class Planner {
 		map<int, double> distToCarBehind;
 		map<int, double> speedOfApproachFromBehind;
 		map<int, double> speedOfApproachFromFront;
-		int numOfXYPassed;
+		int numOfXYPassed; // for current time loop
+		int totalXYPassed;
 		double distTravelled; // distance travelled since last timestep, in m/s 
 		bool isOnCollisionCourse;
+		int loopCount;
 
 	private:
 		constexpr static double PATH_PLANNING_HORIZON = 5.0; // seconds
@@ -63,6 +68,7 @@ class Planner {
 		vector<double> prevDCoeffs;
 		vector<vector<double> > endOfCurrentTrajectory; // sd-coordinate of end of current trajectory
 		bool hasTrajectoryBefore;
+		constexpr static int plotLoopCount = 3;
 
 		vector<double> JMT(vector<double> start, vector<double> end, double T);
 		double eval(const vector<double>& coeffs, double T);
@@ -85,6 +91,7 @@ class Planner {
 		double normalizedVariance(vector<double>& values);
 		double getSpeedAtPath(int idx);
 		double getYawAtPath(int idx);
+		void plotEnvironment(const vector<double> &next_x_vals, const vector<double> &next_y_vals);
 };
 
 #endif

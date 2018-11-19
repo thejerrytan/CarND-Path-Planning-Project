@@ -14,8 +14,6 @@
 #include "utils.hpp"
 
 using namespace std;
-
-// for convenience
 using json = nlohmann::json;
 
 
@@ -140,6 +138,7 @@ int main() {
               next_y_vals = fsm.next_paths.second;
             }
             cout << "[Main] LOOP " << count << endl;
+            planner.loopCount++;
 
             json msgJson;
 
