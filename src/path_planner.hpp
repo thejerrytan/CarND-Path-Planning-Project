@@ -38,18 +38,20 @@ class Planner {
 		constexpr static double PATH_PLANNING_HORIZON = 5.0; // seconds
 		constexpr static double TARGET_AVG_ACCEL = 8.0; // ms-2
 		constexpr static double MAX_S = 6945.554;
-		constexpr static double MAX_VEL = 22.00;  // ms-1, <50 mph
+		constexpr static double MAX_VEL = 21.0109;  // ms-1, <50 mph
+		constexpr static double MAX_VEL_ALLOWANCE = 0.9; // ms-1
 		constexpr static double MAX_ACCEL = 9.0; // ms-2
-		constexpr static double MAX_S_DECEL = 9.0; // ms-2
+		constexpr static double MAX_S_DECEL = 6.0; // ms-2
 		constexpr static double MAX_D_DECEL = 2.0; // ms-2
 		constexpr static double MAX_JERK = 9.0; // ms-3
 		constexpr static double MAX_STEER_ANGLE = 40; // degrees
 		constexpr static double SIGMA_D = 0.25;
 		constexpr static double SIGMA_S = 15;
 		constexpr static double SIGMA_T = 2;
-		constexpr static int SAMPLE_SIZE = 30;
-		constexpr static double CAR_S_SAFETY_DISTANCE = 40;
-		constexpr static double CAR_D_SAFETY_DISTANCE = 0.50;
+		constexpr static int SAMPLE_SIZE = 50;
+		constexpr static double CAR_S_LANE_CHANGE_SAFETY_DISTANCE = 20;
+		constexpr static double CAR_S_SAFETY_DISTANCE = 30;
+		constexpr static double CAR_D_SAFETY_DISTANCE = 4.00;
 		constexpr static double CAR_S_COLLISION_DISTANCE = 5;
 		constexpr static double CAR_D_COLLISION_DISTANCE = 3.00;
 		constexpr static double CAR_XY_COLLISION_DISTANCE = 3.00;
@@ -70,7 +72,7 @@ class Planner {
 		vector<double> prevDCoeffs;
 		vector<vector<double> > endOfCurrentTrajectory; // sd-coordinate of end of current trajectory
 		bool hasTrajectoryBefore;
-		constexpr static int plotLoopCount = 3;
+		constexpr static int plotLoopCount = 10;
 
 		vector<double> JMT(vector<double> start, vector<double> end, double T);
 		double eval(const vector<double>& coeffs, double T);
@@ -94,6 +96,7 @@ class Planner {
 		double getSpeedAtPath(int idx);
 		double getYawAtPath(int idx);
 		void plotEnvironment(const vector<double> &next_x_vals, const vector<double> &next_y_vals);
+		void plotJMT(const vector<vector<double> > sCoeffs, const vector<vector<double> > dCoeffs, vector<tuple<double, double, double> > endConfigs);
 };
 
 #endif

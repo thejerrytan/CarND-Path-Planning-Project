@@ -16,7 +16,7 @@ double FSM::SPEED_LIMIT = 47; // mph
 map<FSM::STATE, vector<FSM::STATE> > FSM::NEXT_STATE {
 		{ FSM::notReady, vector<FSM::STATE> { FSM::notReady, FSM::ready }},
 		{ FSM::ready, vector<FSM::STATE> { FSM::ready, FSM::keepLane }},
-		{ FSM::keepLane, vector<FSM::STATE> { FSM::keepLane, FSM::laneChangeLeft, FSM::laneChangeRight, FSM::final }},
+		{ FSM::keepLane, vector<FSM::STATE> { FSM::keepLane, FSM::laneChangeLeft, FSM::laneChangeRight }},
 		// { FSM::keepLane, vector<FSM::STATE> { FSM::keepLane, FSM::final }},
 		{ FSM::laneChangeLeft, vector<FSM::STATE> { FSM::keepLane }},
 		{ FSM::laneChangeRight, vector<FSM::STATE> { FSM::keepLane }},
@@ -102,43 +102,43 @@ FSM::STATE FSM::run(double x, double y, double s, double d, double yaw, double v
 	updateLaneSpeeds();
 	for (auto p: laneSpeeds) {
 		if (p.first == 1 || p.first == 2 || p.first == 3) {
-			if (DEBUG) cout << "[FSM] lane " << p.first << " -> " << p.second << endl;
+			if (DEBUG) cout << "[FSM] lane speeds " << p.first << " -> " << p.second << endl;
 		}
 	}
 
 	// pid controller to track distance to car ahead
-	double pidErr;
-	double distToCarAhead = planner->distToCarAhead[currentLane];
-	if (DEBUG) cout << "[FSM] dist to car ahead is : " << distToCarAhead << endl;
-	slowDown = 0;
-	if (distToCarAhead != INF && CAR_S_SAFETY_DISTANCE > distToCarAhead) {
-		pidErr = CAR_S_SAFETY_DISTANCE - distToCarAhead;
-		slowDown = pidP * pidErr + pidI * pidCumErr + pidD * (pidErr - pidPrevErr);
-		pidPrevErr = pidErr;
-		pidCumErr += pidErr;
-	} else if (distToCarAhead != INF && CAR_S_SAFETY_DISTANCE < distToCarAhead) {
-		pidErr = CAR_S_SAFETY_DISTANCE - distToCarAhead;
-		slowDown = pidP * pidErr + pidI * pidCumErr + pidD * (pidErr - pidPrevErr);
-		pidPrevErr = pidErr;
-		pidCumErr += pidErr;
-	}
+	// double pidErr;
+	// double distToCarAhead = planner->distToCarAhead[currentLane];
+	// if (DEBUG) cout << "[FSM] dist to car ahead is : " << distToCarAhead << endl;
+	// slowDown = 0;
+	// if (distToCarAhead != INF && CAR_S_SAFETY_DISTANCE > distToCarAhead) {
+	// 	pidErr = CAR_S_SAFETY_DISTANCE - distToCarAhead;
+	// 	slowDown = pidP * pidErr + pidI * pidCumErr + pidD * (pidErr - pidPrevErr);
+	// 	pidPrevErr = pidErr;
+	// 	pidCumErr += pidErr;
+	// } else if (distToCarAhead != INF && CAR_S_SAFETY_DISTANCE < distToCarAhead) {
+	// 	pidErr = CAR_S_SAFETY_DISTANCE - distToCarAhead;
+	// 	slowDown = pidP * pidErr + pidI * pidCumErr + pidD * (pidErr - pidPrevErr);
+	// 	pidPrevErr = pidErr;
+	// 	pidCumErr += pidErr;
+	// }
 
-	if (DEBUG) cout << "[FSM] slowDown is " << slowDown << endl;
+	// if (DEBUG) cout << "[FSM] slowDown is " << slowDown << endl;
 	// if (distToCarAhead < CAR_S_SAFETY_DISTANCE) slowDown = min(5.0, (double) CAR_S_SAFETY_DISTANCE - distToCarAhead);
 	// else slowDown = 0;
 
 	// Override existing path, force state to keep lane and lower speed immediately
-	if (planner->isOnCollisionCourse && distToCarAhead < CAR_S_EMERGENCY_DISTANCE) {
-		isInTransit = false;
-		currentState = FSM::keepLane;
-		nextState = FSM::keepLane;
-		targetLane = currentLane;
-		const double speedDiff = laneSpeeds[currentLane] > v ? 10 : -10;
-		targetSpeed = min(FSM::SPEED_LIMIT, max(0.0, laneSpeeds[currentLane] + speedDiff));
-		if (DEBUG) cout << "[FSM] Emergency : targetSpeed " << targetSpeed << " , currentSpeed " << v << endl;
-		next_paths = planner->generatePath(targetSpeed, currentLane, 0, 2.5);
-		return currentState;
-	}
+	// if (planner->isOnCollisionCourse && distToCarAhead < CAR_S_EMERGENCY_DISTANCE) {
+	// 	isInTransit = false;
+	// 	currentState = FSM::keepLane;
+	// 	nextState = FSM::keepLane;
+	// 	targetLane = currentLane;
+	// 	const double speedDiff = laneSpeeds[currentLane] > v ? 10 : -10;
+	// 	targetSpeed = min(FSM::SPEED_LIMIT, max(0.0, laneSpeeds[currentLane] + speedDiff));
+	// 	if (DEBUG) cout << "[FSM] Emergency : targetSpeed " << targetSpeed << " , currentSpeed " << v << endl;
+	// 	next_paths = planner->generatePath(targetSpeed, currentLane, 0, 2.5);
+	// 	return currentState;
+	// }
 
 	// check whether path planner has finished executing any pending trajectory to transit to the next state
 	if (!planner->hasTrajectory() && planner->hasReachedEndOfTrajectory()) {
@@ -154,7 +154,8 @@ FSM::STATE FSM::run(double x, double y, double s, double d, double yaw, double v
 		return currentState;
 	}
 
-	vector<double> weight_list = { 0.0, 0.5, 0.5 };
+	// we set goalDistance weight to 0 because there is no actual goal here
+	vector<double> weight_list = { 0.0, 0.5, 0.5 }; 
 	vector<FSM::STATE> nextStates = NEXT_STATE[currentState];
 	FSM::STATE chosenState;
 	double chosenTargetSpeed = 0;
@@ -230,8 +231,7 @@ void FSM::updateLocalization(double x, double y, double s, double d, double yaw,
 	this->v = v;
 	nearestWaypoint = ClosestWaypoint(x, y, maps_x, maps_y);
 	nextWaypoint = NextWaypoint(x, y, yaw, maps_x, maps_y);
-	if (DEBUG) cout << "[FSM] Localization: x, y, s, d, yaw, v, currentLane" << endl; 
-  	if (DEBUG) cout << "[FSM] " << x << " " << y << " " << s << " " << d << " " << yaw << " " << v << " " << currentLane << endl;
+	if (DEBUG) cout << "[FSM] Localization: (x:" << x << "), (y:" << y << "), (s:" << s << "), (d:" << d << "), (yaw:" << yaw << "), (v:" << v << "), (currentLane:" << currentLane << ")" << endl;
 }
 
 void FSM::updatePredictions(const vector<vector<double> >& newPredictions) {
@@ -330,13 +330,14 @@ double FSM::goalDistanceCost(double targetSpeed, int targetLane) {
 
 double FSM::inefficiencyCost(double targetSpeed, int targetLane) {
 	if (targetSpeed == 0) return 1.0; // TODO: need better handling for this case?
-	double cost = (targetSpeed - laneSpeeds[targetLane]) / targetSpeed;
+	double cost = (FSM::SPEED_LIMIT - targetSpeed) / FSM::SPEED_LIMIT;
 	return cost;
 }
 
 double FSM::safetyCost(double targetSpeed, int targetLane) {
 	if (targetLane <= 0 || targetLane > 3) return INF;
-	return fabs(targetSpeed - (FSM::SPEED_LIMIT)) / (FSM::SPEED_LIMIT);
+	return (INF - planner->distToCarAhead[targetLane]) / INF + 
+		   (INF - planner->distToCarBehind[targetLane]) / INF;
 }
 
 string FSM::enumToString(FSM::STATE s) {
