@@ -109,7 +109,7 @@ FSM::STATE FSM::run(double x, double y, double s, double d, double yaw, double v
 	// pid controller to track distance to car ahead
 	double pidErr;
 	double distToCarAhead = planner->distToCarAhead[currentLane];
-	cout << "[FSM] dist to car ahead is : " << distToCarAhead << endl;
+	if (DEBUG) cout << "[FSM] dist to car ahead is : " << distToCarAhead << endl;
 	slowDown = 0;
 	if (distToCarAhead != INF && CAR_S_SAFETY_DISTANCE > distToCarAhead) {
 		pidErr = CAR_S_SAFETY_DISTANCE - distToCarAhead;
@@ -123,7 +123,7 @@ FSM::STATE FSM::run(double x, double y, double s, double d, double yaw, double v
 		pidCumErr += pidErr;
 	}
 
-	cout << "[FSM] slowDown is " << slowDown << endl;
+	if (DEBUG) cout << "[FSM] slowDown is " << slowDown << endl;
 	// if (distToCarAhead < CAR_S_SAFETY_DISTANCE) slowDown = min(5.0, (double) CAR_S_SAFETY_DISTANCE - distToCarAhead);
 	// else slowDown = 0;
 
@@ -154,7 +154,7 @@ FSM::STATE FSM::run(double x, double y, double s, double d, double yaw, double v
 		return currentState;
 	}
 
-	vector<double> weight_list = { 0.33, 0.33, 0.33 };
+	vector<double> weight_list = { 0.0, 0.5, 0.5 };
 	vector<FSM::STATE> nextStates = NEXT_STATE[currentState];
 	FSM::STATE chosenState;
 	double chosenTargetSpeed = 0;

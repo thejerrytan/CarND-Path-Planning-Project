@@ -22,7 +22,7 @@ class Planner {
 		void updatePredictions(const vector<vector<double> >& predictions);
 		bool hasReachedEndOfTrajectory();
 		bool hasTrajectory();
-		bool onCollisionCourse();
+		bool onCollisionCourse(bool useXY);
 
 		map<int, double> distToCarAhead; 
 		map<int, double> distToCarBehind;
@@ -51,7 +51,8 @@ class Planner {
 		constexpr static double CAR_S_SAFETY_DISTANCE = 40;
 		constexpr static double CAR_D_SAFETY_DISTANCE = 0.50;
 		constexpr static double CAR_S_COLLISION_DISTANCE = 5;
-		constexpr static double CAR_D_COLLISION_DISTANCE = 0.50;
+		constexpr static double CAR_D_COLLISION_DISTANCE = 3.00;
+		constexpr static double CAR_XY_COLLISION_DISTANCE = 3.00;
 		constexpr static double LANE_SWITCH_TIME = 5; // ms-1
 		unsigned long long prevTimestamp;
 		double x,y,s,d,yaw,v;
@@ -62,6 +63,7 @@ class Planner {
 		vector<tuple<double, double, double, double, double, double> > prevXYAccelSD;
 		vector<vector<double> > predictions;
 		vector<vector<pair<double, double> > > trajectories;
+		vector<listOfPair> trajectoriesXY;
 		vector<double> prevPathX;
 		vector<double> prevPathY;
 		vector<double> prevSCoeffs;
