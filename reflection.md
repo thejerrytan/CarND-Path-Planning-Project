@@ -36,9 +36,9 @@ For everyone
 
 ## Example trajectories
 
-1. [!lane change right/left example](report/laneChangeRight.png)
-2. [!speed up from 0 to top speed 47mph](report/speedUp.png)
-3. [!slow down because approaching car in front](report/slowDown.png)
+1. ![lane change right/left example](report/laneChangeRight.png)
+2. ![speed up from 0 to top speed 47mph](report/speedUp.png)
+3. ![slow down because approaching car in front](report/slowDown.png)
 
 ## Challenges
 
