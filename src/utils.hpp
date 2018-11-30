@@ -39,6 +39,7 @@ inline int calcCurrentLane(const double d) {
 constexpr double pi() { return M_PI; }
 inline double deg2rad(double x) { return x * pi() / 180; }
 inline double rad2deg(double x) { return x * 180 / pi(); }
+inline int sign(double x) { return (x > 0) - (x < 0); }
 
 inline bool cmp(pair<double, double> a, pair<double, double> b) { return a.first < b.first; }
 

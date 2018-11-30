@@ -96,7 +96,15 @@ class Planner {
 		double getSpeedAtPath(int idx);
 		double getYawAtPath(int idx);
 		void plotEnvironment(const vector<double> &next_x_vals, const vector<double> &next_y_vals);
-		void plotJMT(const vector<vector<double> > sCoeffs, const vector<vector<double> > dCoeffs, vector<tuple<double, double, double> > endConfigs);
+		void plotJMT(
+			const vector<vector<double> > sCoeffs, 
+			const vector<vector<double> > dCoeffs, 
+			vector<tuple<double, double, double> > endConfigs,
+			const vector<double> chosenS,
+			const vector<double> chosenD,
+			const double chosenT,
+			const double targetSpeedMs,
+			const int appendIdx);
 };
 
 #endif

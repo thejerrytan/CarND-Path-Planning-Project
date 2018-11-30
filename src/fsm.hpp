@@ -39,10 +39,7 @@ private:
 	STATE nextState;
 	vector<vector<double> > predictions;
 	bool isInTransit;
-	double slowDown;
 	Planner *planner;
-	double pidPrevErr, pidCumErr, pidP, pidD, pidI;
-	int emergencyCount = 0;
 
 	void updateLocalization(double x, double y, double s, double d, double yaw, double v);
 	void updatePredictions(const vector<vector<double> >& predictions);

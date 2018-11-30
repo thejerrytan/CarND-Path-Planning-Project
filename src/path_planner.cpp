@@ -18,7 +18,7 @@
 
 #define PATH_PLANNER_DEBUG true
 #define PLOT_DEBUG false
-#define PLOT_JMT_DEBUG false
+#define PLOT_JMT_DEBUG true
 
 using namespace std;
 using Eigen::MatrixXd;
@@ -42,8 +42,8 @@ Planner::Planner(const vector<double>& maps_x, const vector<double>& maps_y, con
 
 Planner::~Planner() {}
 
-// Add in prev values for subsequent calculations, can only call this after first state is given
 void Planner::init(const double x, const double y, const double s, const double d, const double yaw, const double v) {
+  cout << fixed << setprecision(2);
   updateState(x, y, s, d, yaw, v);
   if (PLOT_DEBUG) gp << "set terminal qt size 600,900" << endl;
   if (PLOT_JMT_DEBUG) gp2 << "set terminal qt size 500,500" << endl;
@@ -232,7 +232,7 @@ pairOfList Planner::generatePath(double targetSpeed, int targetLane, int givenAp
     // s = ut + 1/2 * a * t^2, approx. assuming constant acceleration
     const double ave_accel = min(9.0, (targetSpeedMs - start_speed) / timeHorizon);
     // const double displacement = start_speed * timeHorizon + 0.5 * ave_accel * timeHorizon * timeHorizon;
-    const double displacement = 0.5 * (start_speed + targetSpeedMs) * timeHorizon * 1.1;
+    const double displacement = 0.5 * (start_speed + targetSpeedMs) * timeHorizon * 1.2;
 
     if (PATH_PLANNER_DEBUG) cout << "[PathPlanner] " << s << ", start_s : " << start_s << " , end_s " << start_s + displacement << " , start_speed "  << start_speed << endl;
 
@@ -295,7 +295,6 @@ pairOfList Planner::generatePath(double targetSpeed, int targetLane, int givenAp
       }
     }
 
-    if (PLOT_JMT_DEBUG) plotJMT(possibleSTrajectories, possibleDTrajectories, possibleEndConfigs);
     
     // pick trajectory with lowest cost
     if (PATH_PLANNER_DEBUG) cout  << "[PathPlanner] " << possibleSTrajectories.size() << " feasible trajectories." << endl;
@@ -313,6 +312,7 @@ pairOfList Planner::generatePath(double targetSpeed, int targetLane, int givenAp
       }
     }
     
+    if (PLOT_JMT_DEBUG) plotJMT(possibleSTrajectories, possibleDTrajectories, possibleEndConfigs, s_coeffs, d_coeffs, T, targetSpeedMs, appendIdx);
     if (PATH_PLANNER_DEBUG) cout << "[PathPlanner] Min cost " << minCost << endl;
     
     // Generate chosen trajectory
@@ -526,6 +526,8 @@ bool Planner::isFeasible(int startIdx, double timeHorizon, const vector<double>&
   
   const double deltaT = 0.20; // Adjust this value to tradeoff speed vs accuracy
   const int NUM_PTS = (int) floor(timeHorizon / deltaT);
+  int prevSignAccS = sign(evalA(s_coeffs, 0));
+  int prevSignAccD = sign(evalA(d_coeffs, 0));
   for (double i = 0; i <= timeHorizon; i+=deltaT) {
     const double ss = eval(s_coeffs, i);
     const double vs = evalV(s_coeffs, i);
@@ -562,6 +564,20 @@ bool Planner::isFeasible(int startIdx, double timeHorizon, const vector<double>&
       if (PATH_PLANNER_DEBUG) cout << "[PathPlanner] infeasible accTotal - " << fabs(sqrt(as*as + ad*ad)) << endl;
       return false;
     }
+
+    // Check for monotonicity
+    const int currSignAccS = sign(evalA(s_coeffs, i));
+    const int currSignAccD = sign(evalA(d_coeffs, i));
+    // if (currSignAccS != prevSignAccS) {
+    //   if (PATH_PLANNER_DEBUG) cout << "[PathPlanner] non-monotonic acceleration S" << endl;
+    //   return false;
+    // }
+    // if (currSignAccD != prevSignAccD) {
+    //   if (PATH_PLANNER_DEBUG) cout << "[PathPlanner] non-monotonic acceleration D" << endl;
+    //   return false;
+    // }
+    prevSignAccD = currSignAccD;
+    prevSignAccS = currSignAccS;
 
     const double nextSS = eval(s_coeffs, i+deltaT);
     const double nextSD = eval(d_coeffs, i+deltaT);
@@ -674,7 +690,7 @@ double Planner::calculateCost(const vector<double>& s_coeffs, const vector<doubl
   for (double i = 0; i <= timeHorizon; i+=deltaT) {
     acc.push_back(evalA(s_coeffs, i));
   }
-  cout << "normalized variance accel " << normalizedVariance(acc) << endl;
+  // cout << "normalized variance accel " << normalizedVariance(acc) << endl;
   cost += 10 * normalizedVariance(acc);
 
   // comfort - we only count lateral jerk
@@ -857,8 +873,63 @@ void Planner::plotEnvironment(const vector<double> &next_x_vals, const vector<do
   gp.flush();
 }
 
-void plotJMT(const vector<vector<double> > sCoeffs, const vector<vector<double> > dCoeffs, vector<tuple<double, double, double> > endConfigs) {
+void Planner::plotJMT(
+  const vector<vector<double> > sCoeffs, 
+  const vector<vector<double> > dCoeffs, 
+  vector<tuple<double, double, double> > endConfigs,
+  const vector<double> chosenS,
+  const vector<double> chosenD,
+  const double chosenT,
+  const double targetSpeedMs,
+  const int appendIdx) {
+  if (endConfigs.size() > 0 ) {
+    gp2 << "set size 1,1" << endl
+        << "set multiplot layout 3, 1  scale 1,1 title 'Path planning graphs'" << endl
+        << "set title 'Displacement'" << endl;
+    vector<double> ss, sd, vs, vd, vv, as, ad, aa, time;
+    double T = get<2>(endConfigs[0]);
+    for (double t = appendIdx*0.02; t <= T; t+=0.2) {
+      ss.push_back(eval(chosenS, t));
+      sd.push_back(eval(chosenD, t));
+      vs.push_back(evalV(chosenS, t));
+      vd.push_back(evalV(chosenD, t));
+      as.push_back(evalA(chosenS, t));
+      ad.push_back(evalA(chosenD, t));
+      time.push_back(t);
+    }
+    gp2 << "plot '-' binary " << gp2.binFmt1d(make_pair(ss, sd), "record") << "with points notitle pt 7 ps 1" << endl;
+    gp2.sendBinary1d(make_pair(ss,sd));
+    gp2.flush();
+    gp2 << "set title 'velocity'" << endl;
+    gp2 << "plot '-' binary " << gp2.binFmt1d(make_pair(time, vs), "record") << "with points title '" << setprecision(2) << mph2ms(this->v) << "-" << targetSpeedMs << "'" << endl;
+    gp2.sendBinary1d(make_pair(time, vs));
+    gp2.flush();
+    gp2 << "set title 'acceleration'" << endl;
+    gp2 << "plot '-' binary " << gp2.binFmt1d(make_pair(time, as), "record") << "with points notitle" << endl;
+    gp2.sendBinary1d(make_pair(time, as));
+    gp2.flush();
 
+    // gp2 << "plot ";
+    // vector<vector<double> > trajectoryS, trajectoryD;
+    // for (int i = 0; i < endConfigs.size(); ++i) {
+    //   const double endS = get<0>(endConfigs[i]);
+    //   const double endD = get<1>(endConfigs[i]);
+    //   const double T = get<2>(endConfigs[i]);
+    //   vector<double> ss, sd;
+    //   for (double t = 0; t <= T; t+=0.02) {
+    //     ss.push_back(eval(sCoeffs[i], t));
+    //     sd.push_back(eval(dCoeffs[i], t));
+    //   }
+    //   trajectoryS.push_back(ss);
+    //   trajectoryD.push_back(sd);
+    //   gp2 << "'-' binary" << gp2.binFmt1d(make_pair(ss, sd), "record") << "with points notitle pt 7 ps 1,";
+    // }
+    // for (int i = 0; i < trajectoryS.size(); ++i) {
+    //   gp2.sendBinary1d(make_pair(trajectoryS[i],trajectoryD[i]));
+    // }
+    // gp2 << "0 with lines notitle" << endl; // dummy
+    // gp2.flush();
+  }
 }
 
 // speed - scalar, ms-1
