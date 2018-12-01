@@ -155,7 +155,7 @@ FSM::STATE FSM::run(double x, double y, double s, double d, double yaw, double v
 	if (nextState == FSM::keepLane && ((targetSpeed - v) > 5 || (v - targetSpeed) > 5)) {
 		if ((targetSpeed - v) > 5 && DEBUG) cout << "[FSM] Keep lane but speed up" << endl; 
 		if ((v - targetSpeed) > 5 && DEBUG) cout << "[FSM] Keep lane but slow down" << endl;
-		pairOfList result = planner->generatePath(targetSpeed, targetLane, 0, -1); // extend path but change final speed
+		pairOfList result = planner->generatePath(targetSpeed, targetLane, -1, -1); // extend path but change final speed
 		if (planner->hasTrajectory()) {
 			next_paths = result;
 			isInTransit = true;

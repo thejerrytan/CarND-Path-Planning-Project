@@ -215,7 +215,7 @@ pairOfList Planner::generatePath(double targetSpeed, int targetLane, int givenAp
   vector<double> next_xs, next_ys, next_ss, next_ds, accelSs, accelDs;
   for (int appendIdx : appendIndices) {
     if (numOfXYPassed > appendIdx) continue;
-    if (PATH_PLANNER_DEBUG) cout << "[PathPlanner] appendIdx : " << appendIdx << endl;
+    if (PATH_PLANNER_DEBUG) cout << "[PathPlanner] appendIdx : " << appendIdx <<  " size : " <<  size << endl;
     // Specify initial conditions
     start_accel_s = (size == 0) ? 0.0 : get<2>(prevXYAccelSD[appendIdx]);
     start_accel_d = (size == 0) ? 0.0 : get<3>(prevXYAccelSD[appendIdx]);
@@ -645,7 +645,9 @@ double Planner::calculateCost(const vector<double>& s_coeffs, const vector<doubl
   vector<double> acc;
   const int N = (int) ceil(timeHorizon / deltaT);
   // closeness to center of the lane
-  cost += fabs(LANE_CENTER[targetLane] - endD);
+  for (double i = 0; i <= timeHorizon; i+=deltaT) {
+    cost += fabs(LANE_CENTER[targetLane] - eval(d_coeffs, i));
+  }
 
   // safety distance to car in front
   acc.clear();
