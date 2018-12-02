@@ -72,7 +72,6 @@ class Planner {
 		vector<double> prevDCoeffs;
 		vector<vector<double> > endOfCurrentTrajectory; // sd-coordinate of end of current trajectory
 		bool hasTrajectoryBefore;
-		constexpr static int plotLoopCount = 10;
 
 		vector<double> JMT(vector<double> start, vector<double> end, double T);
 		double eval(const vector<double>& coeffs, double T);
@@ -95,16 +94,6 @@ class Planner {
 		double normalizedVariance(vector<double>& values);
 		double getSpeedAtPath(int idx);
 		double getYawAtPath(int idx);
-		void plotEnvironment(const vector<double> &next_x_vals, const vector<double> &next_y_vals);
-		void plotJMT(
-			const vector<vector<double> > sCoeffs, 
-			const vector<vector<double> > dCoeffs, 
-			vector<tuple<double, double, double> > endConfigs,
-			const vector<double> chosenS,
-			const vector<double> chosenD,
-			const double chosenT,
-			const double targetSpeedMs,
-			const int appendIdx);
 };
 
 #endif

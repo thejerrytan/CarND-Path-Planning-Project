@@ -14,18 +14,12 @@
 #include "path_planner.hpp"
 #include "fsm.hpp"
 #include "utils.hpp"
-#include "gnuplot-iostream.h"
 
 #define PATH_PLANNER_DEBUG true
-#define PLOT_DEBUG false
-#define PLOT_JMT_DEBUG true
 
 using namespace std;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
-
-static Gnuplot gp;
-static Gnuplot gp2;
 
 Planner::Planner(const vector<double>& maps_x, const vector<double>& maps_y, const vector<double>& maps_s) {
   this->maps_x = maps_x;
@@ -43,10 +37,7 @@ Planner::Planner(const vector<double>& maps_x, const vector<double>& maps_y, con
 Planner::~Planner() {}
 
 void Planner::init(const double x, const double y, const double s, const double d, const double yaw, const double v) {
-  cout << fixed << setprecision(2);
   updateState(x, y, s, d, yaw, v);
-  if (PLOT_DEBUG) gp << "set terminal qt size 600,900" << endl;
-  if (PLOT_JMT_DEBUG) gp2 << "set terminal qt size 500,500" << endl;
   this->hasTrajectoryBefore = false;
 }
 
@@ -312,7 +303,6 @@ pairOfList Planner::generatePath(double targetSpeed, int targetLane, int givenAp
       }
     }
     
-    if (PLOT_JMT_DEBUG) plotJMT(possibleSTrajectories, possibleDTrajectories, possibleEndConfigs, s_coeffs, d_coeffs, T, targetSpeedMs, appendIdx);
     if (PATH_PLANNER_DEBUG) cout << "[PathPlanner] Min cost " << minCost << endl;
     
     // Generate chosen trajectory
@@ -359,10 +349,8 @@ pairOfList Planner::generatePath(double targetSpeed, int targetLane, int givenAp
   if (hasPath) {
     if (next_xs.size() >= 5) {
       pair<vector<double>, vector<double> > smoothed = smoothenPath(0, next_xs, next_ys, next_ss, next_ds, accelSs, accelDs);
-      if (PLOT_DEBUG && loopCount % plotLoopCount == 0) plotEnvironment(smoothed.first, smoothed.second);
       return make_pair(smoothed.first, smoothed.second);
     } else {
-      if (PLOT_DEBUG && loopCount % plotLoopCount == 0) plotEnvironment(next_xs, next_ys);
       return make_pair(next_xs, next_ys);
     }
   } else {
@@ -375,7 +363,6 @@ pairOfList Planner::generatePath(double targetSpeed, int targetLane, int givenAp
     } else {
       this->prevXYAccelSD.clear();
     }
-    if (PLOT_DEBUG && loopCount % plotLoopCount == 0) plotEnvironment(next_xs, next_ys);
     return make_pair(next_xs, next_ys);
   }
 }
@@ -430,10 +417,8 @@ pairOfList Planner::extendPath(double targetSpeed, int targetLane) {
       if ( s + distToCarAhead[targetLane] - prevS < CAR_S_COLLISION_DISTANCE) break;
     }
     pairOfList smoothedPath = smoothenPath(0, next_xs, next_ys, next_ss, next_ds, accelS, accelD);
-    if (PLOT_DEBUG && loopCount % plotLoopCount == 0) plotEnvironment(smoothedPath.first, smoothedPath.second);
     return smoothedPath;
   } else {
-    if (PLOT_DEBUG && loopCount % plotLoopCount == 0) plotEnvironment(next_xs, next_ys);
     return make_pair(next_xs, next_ys);
   }
 }
@@ -781,157 +766,6 @@ bool Planner::onCollisionCourse(bool useXY) {
     }
   }
   return false;
-}
-
-
-void Planner::plotEnvironment(const vector<double> &next_x_vals, const vector<double> &next_y_vals) {
-  const int size = next_x_vals.size();
-  double start_x, start_y, end_x, end_y;
-  if (size > 0) {
-    start_x = next_x_vals[0] - 50;
-    start_y = next_y_vals[0] - 50;
-  } else {
-    start_x = 0;
-    start_y = 0;
-  }
-  end_x = start_x + 100;
-  end_y = start_y + 100;
-  
-  pairOfList coords = make_pair(next_x_vals, next_y_vals);
-
-  listOfPair positions;
-  for (int i = 0; i < this->predictions.size(); ++i) {
-    positions.push_back(make_pair(this->predictions[i][1], this->predictions[i][2]));
-  }
-
-  // create trajectory in s-d space
-  vector<double> time, ss, sd, as, ad, vs, vd;
-  const double start_t = totalXYPassed * 0.02;
-  const double end_t = start_t + PATH_PLANNING_HORIZON;
-  if (prevXYAccelSD.size() > 0) {
-    double prevS = get<4>(prevXYAccelSD[0]);
-    double prevD = get<5>(prevXYAccelSD[0]);
-    vs.push_back((get<4>(prevXYAccelSD[1]) - prevS) / 0.02);
-    vd.push_back((get<5>(prevXYAccelSD[1]) - prevD) / 0.02);
-    for (int i = 0; i < prevXYAccelSD.size(); ++i) {
-      time.push_back(start_t + i * 0.02);
-      as.push_back(get<2>(prevXYAccelSD[i]));
-      ad.push_back(get<3>(prevXYAccelSD[i]));
-      ss.push_back(get<4>(prevXYAccelSD[i]));
-      sd.push_back(get<5>(prevXYAccelSD[i]));
-      if (i > 0) {
-        vs.push_back((get<4>(prevXYAccelSD[i]) - prevS) / 0.02);
-        prevS = get<4>(prevXYAccelSD[i]);
-        vd.push_back((get<5>(prevXYAccelSD[i]) - prevD) / 0.02);
-        prevD = get<4>(prevXYAccelSD[i]);
-      }
-   }
-  }
-  
-  const double start_s = ss[0];
-  const double end_s =  start_s + 200;
-  const double start_d = 0;
-  const double end_d = 12;
-
-  
-  gp << "set size 1,1" << endl
-     << "set multiplot layout 3, 1  scale 1,1 title 'Path planning graphs'" << endl
-     << "set title 'Environment X-Y'" << endl
-     << "set xrange [" << start_x << ":" << end_x << "]\nset yrange[" << start_y << ":" << end_y << "]\n"
-     << "plot '-' binary" << gp.binFmt1d(coords, "record") << "with points title 'x-y' pt 7 ps 1,"
-     << "'-' binary" << gp.binFmt1d(positions, "record") << "with points title 'other cars' pt 1 ps 4,";
-  for (auto p: trajectoriesXY) {
-    gp << "'-' binary " << gp.binFmt1d(p, "record") << "with points notitle ps 0, ";
-  }
-  gp << "0 with lines notitle" << endl; // dummy
-  gp.sendBinary1d(coords);
-  gp.sendBinary1d(positions);
-  for (auto p: trajectoriesXY) {
-    gp.sendBinary1d(p);
-  }
-  gp.flush();
-  gp << "set title 'Trajectory S-D'" << endl
-     << "set xrange[" << start_s << ":" << end_s << "]" << endl
-     << "set yrange[" << start_d << ":" << end_d << "]" << endl;
-  gp << "plot '-' binary" << gp.binFmt1d(make_pair(ss, sd), "record") << "with points title 'ego car s-d',";
-  // for (auto p: trajectories) {
-  //   gp << "'-' binary" << gp.binFmt1d(p, "record") << "with points notitle ,";
-  // }
-  gp << "4, 8 with lines title 'lane divider' lt 1" << endl;
-  gp.sendBinary1d(make_pair(ss, sd));
-  // for (auto p: trajectories) {
-  //   gp.sendBinary1d(p);
-  // }
-  gp.flush();
-  gp << "set title 'Velocity & Acceleration Profile in S dimension'" << endl
-     << "set xrange[" << start_t << ":" << end_t << "]" << endl
-     << "set yrange[" << -15 << ":" << 30 << "]" << endl
-     << "f(x) = 22.00" << endl
-     << "plot '-' binary" << gp.binFmt1d(make_pair(time, vs), "record") << "with points title 'velocityS/ ms-1' pt 16,"
-     << "f(x) with lines title 'speed limit' lt 1,"
-     << "'-' binary" << gp.binFmt1d(make_pair(time, as), "record") << "with points title 'accelerationsS/ ms-2' pt 26" << endl;
-  gp.sendBinary1d(make_pair(time, vs));
-  gp.sendBinary1d(make_pair(time, as));
-  gp.flush();
-}
-
-void Planner::plotJMT(
-  const vector<vector<double> > sCoeffs, 
-  const vector<vector<double> > dCoeffs, 
-  vector<tuple<double, double, double> > endConfigs,
-  const vector<double> chosenS,
-  const vector<double> chosenD,
-  const double chosenT,
-  const double targetSpeedMs,
-  const int appendIdx) {
-  if (endConfigs.size() > 0 ) {
-    gp2 << "set size 1,1" << endl
-        << "set multiplot layout 3, 1  scale 1,1 title 'Path planning graphs'" << endl
-        << "set title 'Displacement'" << endl;
-    vector<double> ss, sd, vs, vd, vv, as, ad, aa, time;
-    double T = get<2>(endConfigs[0]);
-    for (double t = appendIdx*0.02; t <= T; t+=0.2) {
-      ss.push_back(eval(chosenS, t));
-      sd.push_back(eval(chosenD, t));
-      vs.push_back(evalV(chosenS, t));
-      vd.push_back(evalV(chosenD, t));
-      as.push_back(evalA(chosenS, t));
-      ad.push_back(evalA(chosenD, t));
-      time.push_back(t);
-    }
-    gp2 << "plot '-' binary " << gp2.binFmt1d(make_pair(ss, sd), "record") << "with points notitle pt 7 ps 1" << endl;
-    gp2.sendBinary1d(make_pair(ss,sd));
-    gp2.flush();
-    gp2 << "set title 'velocity'" << endl;
-    gp2 << "plot '-' binary " << gp2.binFmt1d(make_pair(time, vs), "record") << "with points title '" << setprecision(2) << mph2ms(this->v) << "-" << targetSpeedMs << "'" << endl;
-    gp2.sendBinary1d(make_pair(time, vs));
-    gp2.flush();
-    gp2 << "set title 'acceleration'" << endl;
-    gp2 << "plot '-' binary " << gp2.binFmt1d(make_pair(time, as), "record") << "with points notitle" << endl;
-    gp2.sendBinary1d(make_pair(time, as));
-    gp2.flush();
-
-    // gp2 << "plot ";
-    // vector<vector<double> > trajectoryS, trajectoryD;
-    // for (int i = 0; i < endConfigs.size(); ++i) {
-    //   const double endS = get<0>(endConfigs[i]);
-    //   const double endD = get<1>(endConfigs[i]);
-    //   const double T = get<2>(endConfigs[i]);
-    //   vector<double> ss, sd;
-    //   for (double t = 0; t <= T; t+=0.02) {
-    //     ss.push_back(eval(sCoeffs[i], t));
-    //     sd.push_back(eval(dCoeffs[i], t));
-    //   }
-    //   trajectoryS.push_back(ss);
-    //   trajectoryD.push_back(sd);
-    //   gp2 << "'-' binary" << gp2.binFmt1d(make_pair(ss, sd), "record") << "with points notitle pt 7 ps 1,";
-    // }
-    // for (int i = 0; i < trajectoryS.size(); ++i) {
-    //   gp2.sendBinary1d(make_pair(trajectoryS[i],trajectoryD[i]));
-    // }
-    // gp2 << "0 with lines notitle" << endl; // dummy
-    // gp2.flush();
-  }
 }
 
 // speed - scalar, ms-1

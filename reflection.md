@@ -55,8 +55,6 @@ Generating a new path is tricky and often leads to violations of the program req
 
 Since PathPlanner is a low level module, units are in metres per second.
 
-## Event loop - how to generate Jerk Minimizing Trajectories
-
 
 ## Example trajectories
 
@@ -67,7 +65,6 @@ Since PathPlanner is a low level module, units are in metres per second.
 ## Challenges
 
 1. The path planner is known to not work well if a car suddenly cuts into ego car's lane and there is very little distance to car in front to work out a new trajectory. The drastic reduction in feasible search space makes this a challenging problem.
-
 
 ## Solutions
 
